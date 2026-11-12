@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="14 6 76 84" role="img" aria-label="VIC'TORY">
+<defs><linearGradient id="vg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF2D8E"/><stop offset=".55" stop-color="#9B3DFF"/><stop offset="1" stop-color="#00E0C2"/></linearGradient></defs>
+<g fill="url(#vg)">
+<path d="M20.5 16.7H32L35.9 50 52.6 9.7H66.7L25.6 84.6H20.5Z"/>
+<path d="M69.2 26.9H85.1L72.3 45.6H82.6L42.3 84.6 58.5 55.1H49.2Z"/>
+</g></svg>
