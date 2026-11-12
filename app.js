@@ -6,6 +6,13 @@
 const SB_URL = 'https://vvmfutlpcdgufuowcvte.supabase.co';
 const SB_KEY = 'sb_publishable_5vrAEcRUk75_ucJlDecVxA__k8E9iwi';
 const CHANGES = [
+  { v: '0.4.0', date: '2026-11-12', name: 'Forme', items: [
+    'Forme du jour : forme (42 jours), fatigue (7 jours) et fraîcheur, calculées à partir de tes zones cardio ou de ton ressenti',
+    'Courbe de forme et de fatigue sur 120 jours dans Progrès',
+    'Plan jusqu\'à ta course A : phases (base, développement, spécifique, affûtage), heures, D+ et sortie longue semaine par semaine',
+    'Une semaine sur quatre allégée, et une limite d\'heures par semaine selon ta vie',
+    'Jumeau local : chaque montée et descente de ta course retrouvée dans tes propres sorties, avec le taux de parcours couvert'
+  ] },
   { v: '0.3.0', date: '2026-11-12', name: 'En direct', items: [
     'Le jour de la course : bouton « Je suis à… » pour pointer chaque ravito en un geste',
     'Partage de ta position GPS tant que l\'appli est ouverte (l\'écran reste allumé)',
@@ -253,7 +260,9 @@ function vToday() {
     const j = dayDiff(today(), nr.race_date);
     h += '<a class="card hero" href="#/course/' + nr.id + '" style="display:block;text-decoration:none"><div class="lab">Objectif · course ' + nr.priority + '</div><h3>' + esc(nr.name) + '</h3><div class="big">' + (j === 0 ? 'Jour J' : 'J−' + j) + '</div><div class="row"><span>' + fmtD(nr.race_date) + '</span>' + (nr.km ? '<span>' + fr(nr.km) + ' km</span>' : '') + (nr.dplus ? '<span>' + fr(nr.dplus) + ' m D+</span>' : '') + '</div></a>';
   } else h += '<a class="card hero" href="#/course/nouvelle" style="display:block;text-decoration:none"><div class="lab">Pas encore d\'objectif</div><h3>Ajoute ta prochaine course</h3><div class="row"><span>Parcours, ravitos, heures de passage ›</span></div></a>';
-  h += '<h2 class="sec">Cette semaine</h2><div class="stats"><div class="stat"><span>Temps</span><b>' + hm(w.s) + '</b>' + delta(w.s, avg('s'), x => hm(x, true)) + '</div><div class="stat"><span>Distance</span><b>' + km1(w.m) + ' km</b>' + delta(w.m, avg('m'), x => km1(x) + ' km') + '</div><div class="stat"><span>D+</span><b>' + fr(w.dp) + ' m</b>' + delta(w.dp, avg('dp'), x => fr(x) + ' m') + '</div></div><p class="note">Comparé à la moyenne des 4 semaines précédentes.</p>';
+  if (S.acts.length) h += '<div style="margin-top:12px">' + formCard(false) + '</div>';
+  const P = planFor(), pw = P && P.weeks[0];
+  h += '<h2 class="sec">Cette semaine</h2>' + (pw ? '<a class="card" href="#/plan" style="display:flex;justify-content:space-between;align-items:center;gap:10px;text-decoration:none;color:var(--ink);margin-bottom:10px"><span><b>Plan · ' + pw.ph + (pw.rec ? ' (récup)' : '') + '</b><br><span class="muted" style="font-size:.84rem">Objectif ' + pw.h.toLocaleString('fr-FR') + ' h · ' + fr(pw.dp) + ' m D+ · sortie longue ' + pw.lr.toLocaleString('fr-FR') + ' h</span></span><span style="color:var(--muted);font-size:1.3rem">›</span></a>' : '') + '<div class="stats"><div class="stat"><span>Temps</span><b>' + hm(w.s) + '</b>' + delta(w.s, avg('s'), x => hm(x, true)) + '</div><div class="stat"><span>Distance</span><b>' + km1(w.m) + ' km</b>' + delta(w.m, avg('m'), x => km1(x) + ' km') + '</div><div class="stat"><span>D+</span><b>' + fr(w.dp) + ' m</b>' + delta(w.dp, avg('dp'), x => fr(x) + ' m') + '</div></div><p class="note">Comparé à la moyenne des 4 semaines précédentes.</p>';
   const last = S.acts[0];
   h += '<h2 class="sec">Dernière sortie</h2>';
   h += last ? '<ul class="list">' + actLi(last) + '</ul>' : '<div class="empty"><b>Aucune séance</b>Importe les fichiers de ta montre (FIT ou GPX) pour remplir ton carnet.<div class="btns"><a class="btn" href="#/seances">Importer mes sorties</a></div></div>';
@@ -624,6 +633,7 @@ function vRace(id) {
       ? '<p style="margin:0">Ton équipe suit tes heures de passage, ce qu\'elle doit te tendre et la météo, avec ce lien et sans compte. Elle voit ton prénom et la course, rien d\'autre.</p><div class="btns"><button class="btn" id="shr">Partager le lien</button><button class="btn ghost" id="cof">Désactiver le lien</button></div>'
       : '<p style="margin:0">Crée un lien pour que tes suiveurs voient tes heures de passage aux ravitos. Tu peux le désactiver quand tu veux.</p><div class="btns"><button class="btn" id="con">Créer le lien équipe</button></div>') + '</div>';
   }
+  if (r.profile && !past) h += '<h2 class="sec">S\'entraîner sur le parcours</h2><a class="card" href="#/course/' + r.id + '/jumeau" style="display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:var(--ink)"><span><b>Jumeau local</b><br><span class="muted" style="font-size:.84rem">Les montées et descentes de la course, retrouvées dans tes sorties</span></span><span style="color:var(--muted);font-size:1.3rem">›</span></a>';
   h += '<div class="btns two"><a class="btn ghost" href="#/course/' + r.id + '/modifier">Modifier</a><button class="btn danger" id="dl">Supprimer</button></div>';
   shell('races', h);
   if ($('wx')) weatherHTML(r, m).then(x => { if ($('wx')) $('wx').innerHTML = x; }).catch(() => { if ($('wx')) $('wx').innerHTML = '<p class="note" style="margin-top:0">Météo indisponible pour le moment.</p>'; });
@@ -714,13 +724,134 @@ async function vCrew(token) {
   }
 }
 
+/* ---------- forme : charge d'entraînement ---------- */
+// charge d'une séance : heures par zone × [40, 60, 80, 100, 120] si la FC est connue, sinon heures × (ressenti × 10 + 10), sinon heures × 55
+const ZW = [40, 60, 80, 100, 120];
+function loadOf(a) {
+  const h = (a.moving_s || a.elapsed_s || 0) / 3600;
+  if (a.zone_s && a.zone_s.some(Boolean)) { const tot = a.zone_s.reduce((x, y) => x + y, 0) || 1; return a.zone_s.reduce((s, z, i) => s + z / tot * h * ZW[i], 0); }
+  if (a.rpe) return h * (a.rpe * 10 + 10);
+  return h * 55 * (a.elev_gain && a.distance_m ? Math.min(1.3, 1 + a.elev_gain / a.distance_m) : 1);
+}
+function fitness(days) {
+  days = days || 120; const byDay = {}; S.acts.forEach(a => { const k = localDay(a.start_at); byDay[k] = (byDay[k] || 0) + loadOf(a); });
+  const start = new Date(); start.setDate(start.getDate() - days - 90); // 90 jours de chauffe pour les moyennes
+  let ctl = 0, atl = 0; const out = [];
+  for (let d = new Date(start); d <= new Date(); d.setDate(d.getDate() + 1)) {
+    const l = byDay[ymd(d)] || 0; ctl += (l - ctl) / 42; atl += (l - atl) / 7;
+    out.push({ d: ymd(d), l, ctl, atl, tsb: ctl - atl });
+  }
+  return out.slice(-days);
+}
+function formMsg(f) {
+  const t = f.tsb;
+  if (f.ctl < 5) return ['Pas assez de séances', 'Importe quelques semaines de sorties pour mesurer ta forme.', 'var(--muted)'];
+  if (t < -25) return ['Très fatigué', 'Grosse charge récente : une journée facile ou du repos sera utile.', 'var(--red)'];
+  if (t < -10) return ['En charge', 'Tu travailles : c\'est là que la forme se construit, à condition de récupérer ensuite.', 'var(--yellow)'];
+  if (t <= 5) return ['Équilibré', 'Charge et récupération s\'équilibrent.', 'var(--turq)'];
+  return ['Frais', 'Bien reposé : bon moment pour une séance clé, ou c\'est l\'affûtage avant course.', 'var(--turq)'];
+}
+function linesSVG(F) {
+  const W = 360, H = 150, pl = 26, pb = 18, pt = 8, n = F.length, mx = Math.max(10, ...F.map(f => Math.max(f.ctl, f.atl))) * 1.1;
+  const X = i => pl + (W - pl - 4) * i / (n - 1), Y = v => pt + (H - pt - pb) * (1 - v / mx);
+  const path = k => F.map((f, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(f[k]).toFixed(1)).join('');
+  let g = ''; const st = mx > 80 ? 20 : mx > 40 ? 10 : 5; for (let v = 0; v < mx; v += st) g += '<line x1="' + pl + '" x2="' + W + '" y1="' + Y(v) + '" y2="' + Y(v) + '" stroke="#37303F"/><text x="' + (pl - 4) + '" y="' + (Y(v) + 3) + '" text-anchor="end">' + v + '</text>';
+  F.forEach((f, i) => { if (i % 30 === (n - 1) % 30) { const d = pd(f.d); g += '<text x="' + X(i) + '" y="' + (H - 4) + '" text-anchor="middle">' + d.getDate() + ' ' + MOIS[d.getMonth()].replace('.', '') + '</text>'; } });
+  g += '<path d="' + path('atl') + '" fill="none" stroke="#FF2D8E" stroke-width="1.6" opacity=".85"/><path d="' + path('ctl') + '" fill="none" stroke="#00E0C2" stroke-width="2.4"/>';
+  return '<svg class="chart" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Forme (bleu-vert) et fatigue (rose) sur 120 jours">' + g + '</svg>';
+}
+function formCard(full) {
+  const F = fitness(120), f = F[F.length - 1], [t, msg, col] = formMsg(f), w4 = F[F.length - 29] || F[0];
+  let h = '<div class="card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px"><div><div class="muted" style="font:800 .72rem var(--f);letter-spacing:.12em;text-transform:uppercase">Forme du jour</div><b style="font:400 1.6rem var(--d);letter-spacing:.02em;color:' + col + '">' + t + '</b></div><div style="text-align:right"><b style="font:400 1.6rem var(--d)">' + (f.tsb > 0 ? '+' : '') + Math.round(f.tsb) + '</b><div class="muted" style="font-size:.74rem">fraîcheur</div></div></div><p class="note">' + msg + '</p>';
+  if (full) h += '<div class="stats" style="margin-top:10px"><div class="stat"><span>Forme</span><b style="color:var(--turq)">' + Math.round(f.ctl) + '</b><small class="' + (f.ctl >= w4.ctl ? 'up' : 'down') + '">' + (f.ctl >= w4.ctl ? '+' : '−') + Math.abs(Math.round(f.ctl - w4.ctl)) + ' en 4 sem.</small></div><div class="stat"><span>Fatigue</span><b style="color:var(--pink)">' + Math.round(f.atl) + '</b><span>7 jours</span></div><div class="stat"><span>Charge 7 j</span><b>' + Math.round(F.slice(-7).reduce((s, x) => s + x.l, 0)) + '</b><span>points</span></div></div><div style="margin-top:12px">' + linesSVG(F) + '</div><div class="legend"><span><i style="background:#00E0C2"></i>Forme (moyenne 42 j)</span><span><i style="background:#FF2D8E"></i>Fatigue (7 j)</span></div><p class="note">Charge d\'une séance : temps passé dans chaque zone cardio (ou ressenti, ou durée et dénivelé à défaut). Fraîcheur = forme − fatigue. Une forme qui monte de plus de 5 à 7 points par semaine augmente le risque de blessure.</p>';
+  return h + '</div>';
+}
+
+/* ---------- plan jusqu'à la course A ---------- */
+function planFor() {
+  const races = S.races.filter(r => r.race_date >= today()).sort((a, b) => a.race_date.localeCompare(b.race_date));
+  const goal = races.find(r => r.priority === 'A') || races[0]; if (!goal) return null;
+  const ws0 = weekStart(new Date()), wr = weekStart(pd(goal.race_date)), nW = Math.round((wr - ws0) / (7 * 864e5)) + 1;
+  const past4 = [1, 2, 3, 4].map(weekStats), H0 = Math.max(3, past4.reduce((s, x) => s + x.s, 0) / 4 / 3600);
+  const m = raceModel(goal), eff = m.eff || 50;
+  let Hp = eff < 60 ? 8 : eff < 120 ? 10 : eff < 200 ? 12 : 14;
+  Hp = Math.min(Hp, Math.max(H0 * 1.8, H0 + 3)); const cap = S.profile && S.profile.week_hours; if (cap) Hp = Math.min(Hp, cap);
+  const dph = goal.dplus && m.total ? goal.dplus / (m.total / 3600) : 250; // m de D+ par heure de course
+  const weeks = [];
+  for (let i = 0; i < nW; i++) {
+    const toRace = nW - 1 - i, ws = new Date(ws0); ws.setDate(ws.getDate() + 7 * i);
+    let ph, f;
+    if (toRace === 0) { ph = 'Course'; f = 0.4; }
+    else if (toRace <= 2) { ph = 'Affûtage'; f = toRace === 1 ? 0.55 : 0.7; }
+    else if (toRace <= 9) { ph = 'Spécifique'; f = 1; }
+    else if (toRace <= 19) { ph = 'Développement'; f = 0.75 + 0.25 * (19 - toRace) / 10; }
+    else { ph = 'Base'; f = 0.65; }
+    let h = ph === 'Base' || ph === 'Développement' ? H0 + (Hp * f - H0) * Math.min(1, (i + 1) / Math.max(4, nW - 9)) : Hp * f;
+    const rec = toRace > 2 && toRace % 4 === 3; if (rec) h *= 0.7;
+    h = Math.max(2, Math.round(h * 2) / 2);
+    const lr = ph === 'Spécifique' ? Math.min(6, Math.max(2, (m.total || 4 * 3600) / 3600 * 0.35)) : ph === 'Développement' ? Math.min(4.5, h * 0.3) : Math.min(2.5, h * 0.3);
+    weeks.push({ ws, ph, rec, h, dp: Math.round(h * dph * 0.8 / 50) * 50, lr: Math.round(lr * 2) / 2, toRace });
+  }
+  return { goal, weeks, H0, Hp };
+}
+const PH_TXT = {
+  'Base': 'Construire l\'endurance : beaucoup de facile (Z1–Z2), un peu de côtes courtes, du renfo.',
+  'Développement': 'Monter le volume et le D+ ; une séance de seuil ou de côtes longues par semaine, une sortie longue qui s\'allonge.',
+  'Spécifique': 'Ressembler à la course : sorties longues sur terrain proche, D+ et D− du parcours, nutrition de course testée.',
+  'Affûtage': 'Baisser le volume, garder un peu de rythme. Dormir, manger, vérifier le matériel.',
+  'Course': 'Semaine de course : quelques footings courts, tout le reste pour le jour J.'
+};
+function weekDone(ws) { const we = new Date(ws); we.setDate(we.getDate() + 7); const a = S.acts.filter(x => { const d = new Date(x.start_at); return d >= ws && d < we; }); return { s: a.reduce((t, x) => t + (x.moving_s || x.elapsed_s || 0), 0), dp: a.reduce((t, x) => t + (x.elev_gain || 0), 0), lr: Math.max(0, ...a.filter(isFoot).map(x => x.moving_s || 0)) }; }
+function planWeekCard(P, w, i) {
+  const d = weekDone(w.ws), cur = i === 0, pct = v => Math.min(100, Math.round(v * 100));
+  return '<div class="card"' + (cur ? ' style="border-color:var(--pink)"' : '') + '><div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline"><b>' + (cur ? 'Cette semaine' : 'Sem. du ' + w.ws.getDate() + ' ' + MOIS[w.ws.getMonth()]) + '</b><span class="pill ' + (w.ph === 'Course' ? 'a' : w.ph === 'Spécifique' ? 'b' : '') + '">' + w.ph + (w.rec ? ' · récup' : '') + '</span></div>' +
+    '<div class="muted" style="font-size:.82rem;margin-top:2px">' + (w.toRace ? 'J−' + dayDiff(today(), P.goal.race_date) + (cur ? '' : '') + ' · ' : '') + w.h.toLocaleString('fr-FR') + ' h · ' + fr(w.dp) + ' m D+ · sortie longue ' + w.lr.toLocaleString('fr-FR') + ' h</div>' +
+    (cur ? '<div class="zrow" style="grid-template-columns:62px 1fr 74px"><span>Temps</span><div class="bar"><i style="width:' + pct(d.s / 3600 / w.h) + '%;background:var(--pink)"></i></div><span style="text-align:right">' + hm(d.s) + '</span></div><div class="zrow" style="grid-template-columns:62px 1fr 74px"><span>D+</span><div class="bar"><i style="width:' + pct(d.dp / Math.max(1, w.dp)) + '%;background:var(--violet)"></i></div><span style="text-align:right">' + fr(d.dp) + ' m</span></div><div class="zrow" style="grid-template-columns:62px 1fr 74px"><span>Longue</span><div class="bar"><i style="width:' + pct(d.lr / 3600 / w.lr) + '%;background:var(--turq)"></i></div><span style="text-align:right">' + hm(d.lr) + '</span></div><p class="note">' + PH_TXT[w.ph] + '</p>' : '') + '</div>';
+}
+function vPlan() {
+  const P = planFor();
+  if (!P) { shell('prog', '<a class="back" href="#/progres">‹ Progrès</a><div class="hd"><h1>Plan</h1></div><div class="empty"><b>Pas de course à venir</b>Ajoute ta course objectif pour générer ton plan.<div class="btns"><a class="btn" href="#/course/nouvelle">Ajouter une course</a></div></div>'); return; }
+  let h = '<a class="back" href="#/progres">‹ Progrès</a><div class="hd"><h1>Plan</h1><p>Jusqu\'à <b>' + esc(P.goal.name) + '</b>, le ' + fmtD(P.goal.race_date) + ' : ' + P.weeks.length + ' semaines.</p></div>';
+  h += '<div class="card"><p style="margin:0">Volume de départ <b>' + P.H0.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' h</b> par semaine (tes 4 dernières semaines), pic à <b>' + P.Hp.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' h</b> en phase spécifique. Une semaine sur quatre allégée pour récupérer.</p><label class="f" for="wh">Heures maximum par semaine <small>(selon ta vie : boulot, famille)</small></label><div class="grid2" style="grid-template-columns:1fr auto"><input class="in-f" id="wh" inputmode="decimal" value="' + (S.profile.week_hours || '') + '" placeholder="pas de limite"><button class="btn" id="whs" style="width:auto">OK</button></div><p class="note">Un repère pour s\'organiser, pas une prescription : si tu as un coach, suis son plan.</p></div>';
+  h += '<h2 class="sec">Semaines</h2>' + P.weeks.map((w, i) => planWeekCard(P, w, i)).join('');
+  shell('prog', h);
+  $('whs').onclick = async () => { const v = +String($('wh').value).replace(',', '.') || null; if (v != null && (v < 2 || v > 40)) return toast('Entre 2 et 40 h'); try { await saveProfile({ week_hours: v }); vPlan(); } catch (e) { toast(e.message); } };
+}
+
+/* ---------- jumeau local ---------- */
+async function vTwin(id) {
+  const r = S.races.find(x => x.id === id); if (!r) { location.hash = '#/courses'; return; }
+  let h = '<a class="back" href="#/course/' + r.id + '">‹ ' + esc(r.name) + '</a><div class="hd"><h1>Jumeau local</h1><p>Chaque montée, descente et portion roulante de la course, retrouvée dans tes propres sorties : de quoi répéter la course près de chez toi.</p></div>';
+  if (!r.profile) { shell('races', h + '<div class="empty"><b>Parcours manquant</b>Ajoute le GPX de la course (Modifier) pour lancer l\'analyse.</div>'); return; }
+  h += '<div class="card" id="tw"><p class="note" style="margin-top:0">Chargement de tes tracés…</p><div class="zbar" style="height:8px"><i id="twp" style="display:block;width:0;background:var(--grad);height:100%"></i></div></div>';
+  shell('races', h);
+  const ids = S.acts.filter(a => isFoot(a) && (a.elev_gain || 0) >= 100 && a.source !== 'manual').slice(0, 80).map(a => a.id);
+  if (!ids.length) { $('tw').innerHTML = '<p class="note" style="margin-top:0">Importe des sorties avec du dénivelé (fichiers FIT ou GPX) pour trouver des portions jumelles.</p>'; return; }
+  const acts = []; for (let i = 0; i < ids.length; i += 20) { const { data } = await sb.from('activities').select('id,name,start_at,track').in('id', ids.slice(i, i + 20)); (data || []).forEach(a => { if (a.track) acts.push({ id: a.id, name: a.name, date: localDay(a.start_at), track: a.track }); }); }
+  if (!$('tw')) return;
+  const wk = new Worker('twin-worker.js');
+  wk.onmessage = e => {
+    if (e.data.progress != null) { const p = $('twp'); if (p) p.style.width = Math.round(e.data.progress * 100) + '%'; return; }
+    wk.terminate(); const el = $('tw'); if (!el) return;
+    const secs = e.data.sections, tot = secs.reduce((s, x) => s + x.L, 0), ok = secs.filter(x => x.m && x.m.sc >= 0.75);
+    const cov = ok.reduce((s, x) => s + x.L, 0) / (tot || 1), dpT = secs.reduce((s, x) => s + Math.max(0, x.up), 0), dpOk = ok.reduce((s, x) => s + Math.max(0, x.up), 0) / (dpT || 1);
+    const KIND = { montee: ['Montée', 'var(--pink)', '↗'], descente: ['Descente', 'var(--turq)', '↘'], roulant: ['Roulant', 'var(--yellow)', '→'] };
+    el.innerHTML = '<div class="stats"><div class="stat"><span>Parcours couvert</span><b>' + Math.round(cov * 100) + ' %</b><span>jumeau ≥ 75 %</span></div><div class="stat"><span>D+ couvert</span><b>' + Math.round(dpOk * 100) + ' %</b><span>' + fr(dpT) + ' m</span></div><div class="stat"><span>Sorties</span><b>' + e.data.nActs + '</b><span>analysées</span></div></div><p class="note">Plus tu importes de sorties variées, plus les jumeaux sont fidèles.</p>' +
+      '<ul class="list" style="margin-top:12px">' + secs.map(s => { const K = KIND[s.kind], m = s.m, good = m && m.sc >= 0.75;
+        return '<li>' + (m ? '<a href="#/seance/' + m.actId + '">' : '<div class="it">') + '<div style="flex:none;width:30px;text-align:center;font-size:1.2rem;color:' + K[1] + '">' + K[2] + '</div><div class="li-main"><b style="white-space:normal">' + K[0] + ' · km ' + s.k0.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' → ' + s.k1.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + '</b><small>' + (s.L / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' km · ' + (s.dz > 0 ? '+' : '') + fr(s.dz) + ' m · ' + s.gr.toLocaleString('fr-FR') + ' %' + (m ? '<br>' + (good ? '' : 'au plus proche : ') + esc(m.name || 'Sortie') + ' du ' + fmtDs(m.date) + ', km ' + m.k0.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' → ' + m.k1.toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + (m.rev ? ' (dans l\'autre sens)' : '') : '') + '</small></div><div class="li-side" style="color:' + (good ? 'var(--turq)' : 'var(--muted)') + '">' + (m ? Math.round(m.sc * 100) + ' %' : '–') + '</div>' + (m ? '</a>' : '</div>') + '</li>'; }).join('') + '</ul>';
+  };
+  wk.onerror = () => { const el = $('tw'); if (el) el.innerHTML = '<p class="note" style="margin-top:0">Analyse impossible sur cet appareil.</p>'; };
+  wk.postMessage({ profile: r.profile, acts });
+}
+
 /* ---------- progrès ---------- */
 function vProg() {
   const N = 12, ws0 = weekStart(new Date()), W = [];
   for (let i = N - 1; i >= 0; i--) { const s = new Date(ws0); s.setDate(s.getDate() - 7 * i); W.push(Object.assign({ ws: s }, weekStats(i))); }
   const lab = W.map((w, i) => i % 3 === (N - 1) % 3 ? w.ws.getDate() + ' ' + MOIS[w.ws.getMonth()].replace('.', '') : '');
-  let h = '<div class="hd"><h1>Progrès</h1><p>Tes 12 dernières semaines.</p></div>';
+  let h = '<div class="hd"><h1>Progrès</h1><p>Ta forme, ton volume et tes records.</p></div>';
   if (!S.acts.length) { shell('prog', h + '<div class="empty"><b>Rien à afficher</b>Importe tes sorties pour voir ta progression.</div>'); return; }
+  h += formCard(true) + '<a class="card" href="#/plan" style="display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:var(--ink)"><span><b>Mon plan jusqu\'à la course A</b><br><span class="muted" style="font-size:.84rem">Phases, volume et D+ semaine par semaine</span></span><span style="color:var(--muted);font-size:1.3rem">›</span></a><h2 class="sec">Volume</h2>';
   h += '<div class="card"><div class="seg" id="pm" role="tablist"><button class="on" data-k="h" role="tab" aria-selected="true">Heures</button><button data-k="km" role="tab" aria-selected="false">Km</button><button data-k="dp" role="tab" aria-selected="false">D+</button></div><div id="pc" style="margin-top:12px"></div></div>';
   const z28 = [0, 0, 0, 0, 0]; S.acts.filter(a => Date.now() - Date.parse(a.start_at) < 28 * 864e5 && a.zone_s).forEach(a => a.zone_s.forEach((s, i) => z28[i] += s || 0));
   if (hrOK() && z28.some(Boolean)) {
@@ -822,7 +953,8 @@ function route() {
     case 'seances': return vActs();
     case 'seance': return vAct(parts[1]);
     case 'courses': return vRaces();
-    case 'course': return parts[1] === 'nouvelle' ? vRaceForm(null) : parts[2] === 'modifier' ? vRaceForm(parts[1]) : vRace(parts[1]);
+    case 'course': return parts[1] === 'nouvelle' ? vRaceForm(null) : parts[2] === 'modifier' ? vRaceForm(parts[1]) : parts[2] === 'jumeau' ? vTwin(parts[1]) : vRace(parts[1]);
+    case 'plan': return vPlan();
     case 'progres': return vProg();
     case 'profil': return vMe(parts[1]);
     default: return vToday();
