@@ -6,6 +6,9 @@
 const SB_URL = 'https://vvmfutlpcdgufuowcvte.supabase.co';
 const SB_KEY = 'sb_publishable_5vrAEcRUk75_ucJlDecVxA__k8E9iwi';
 const CHANGES = [
+  { v: '1.0.1', date: '2026-11-12', name: 'Mises à jour plus rapides', items: [
+    'Les nouvelles versions arrivent dès la réouverture de l\'appli, sans attendre'
+  ] },
   { v: '1.0.0', date: '2026-11-12', name: 'Coach', items: [
     'Un programme séance par séance jusqu\'à ta course objectif, construit selon ton niveau, tes disponibilités et ton terrain',
     'Chaque séance détaillée : échauffement, blocs, récup, avec tes allures, ta FC et ta vitesse de montée',
