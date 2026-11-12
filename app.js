@@ -6,6 +6,10 @@
 const SB_URL = 'https://vvmfutlpcdgufuowcvte.supabase.co';
 const SB_KEY = 'sb_publishable_5vrAEcRUk75_ucJlDecVxA__k8E9iwi';
 const CHANGES = [
+  { v: '1.1.0', date: '2026-11-12', name: 'Ta montre', items: [
+    'Choisis ta montre (Coros, Garmin, Apple Watch, Suunto, Polar, Wahoo) : l\'import t\'explique comment récupérer tes séances',
+    'Import direct de l\'archive .zip « Exporter l\'original » de Garmin Connect'
+  ] },
   { v: '1.0.1', date: '2026-11-12', name: 'Mises à jour plus rapides', items: [
     'Les nouvelles versions arrivent dès la réouverture de l\'appli, sans attendre'
   ] },
@@ -207,7 +211,7 @@ function vOnboard(step) {
     '<p class="note">Pas sûr ? Laisse vide : le test de vitesse critique donnera ta FC de seuil.</p>' + nav + '</form>';
   if (step === 3) h += '<h1 style="text-align:left;font-size:2rem">Ton niveau</h1><p class="muted">Pour partir de là où tu en es, sans brûler les étapes.</p><form id="ob">' + levelForm(p) + nav + '</form>';
   if (step === 4) h += '<h1 style="text-align:left;font-size:2rem">Ton temps</h1><p class="muted">Le programme se place dans ta semaine, pas l\'inverse.</p><form id="ob">' + availForm(p) + nav + '</form>';
-  if (step === 5) h += '<h1 style="text-align:left;font-size:2rem">Ton terrain</h1><p class="muted">À quoi as-tu accès ? Les séances s\'adaptent (côtes ou tapis, piste pour les tests, renfo en salle ou à la maison).</p><form id="ob">' + terrForm(p) + nav + '</form>';
+  if (step === 5) h += '<h1 style="text-align:left;font-size:2rem">Ta montre et ton terrain</h1><form id="ob"><label class="f" style="margin-top:4px">Avec quoi tu enregistres tes sorties ?</label>' + deviceForm(p) + '<label class="f" style="margin-top:18px">À quoi as-tu accès ? <small>(les séances s\'adaptent)</small></label>' + terrForm(p) + nav + '</form>';
   if (step === 6) h += '<h1 style="text-align:left;font-size:2rem">Ton objectif</h1><p class="muted">La course que tu prépares : le programme se construit jusqu\'à elle.</p><form id="ob">' +
     '<label class="f" for="rn">Nom de la course</label><input class="in-f" id="rn" maxlength="120" placeholder="Ex. Diagonale des Fous">' +
     '<div class="grid2"><div><label class="f" for="rd">Date</label><input class="in-f" id="rd" type="date" min="' + today() + '"></div><div><label class="f" for="rk">Distance <small>(km)</small></label><input class="in-f" id="rk" inputmode="decimal"></div></div>' +
@@ -230,7 +234,7 @@ function vOnboard(step) {
       }
       if (step === 3) { await saveProfile({ level: readLevel() }); return vOnboard(4); }
       if (step === 4) { const a = readAvail(); if (a.days.length < 2) return E('Choisis au moins 2 jours.'); if (!a.days.includes(a.long_day)) a.days.push(a.long_day); await saveProfile({ availability: a }); return vOnboard(5); }
-      if (step === 5) { await saveProfile({ terrain: readTerr() }); return vOnboard(6); }
+      if (step === 5) { await saveProfile({ terrain: readTerr(), device: readDevice() }); return vOnboard(6); }
       const n = $('rn').value.trim(), d = $('rd').value;
       if (!n || !d) return E('Indique au moins le nom et la date, ou choisis « Pas de course pour l\'instant ».');
       const { data, error } = await sb.from('races').insert({ name: n, race_date: d, km: +String($('rk').value).replace(',', '.') || null, dplus: +$('rp').value || null }).select().single();
@@ -286,8 +290,8 @@ function actLi(a) {
 function vActs() {
   let h = '<div class="hd"><h1>Séances</h1></div><div class="seg" role="tablist" style="margin-bottom:16px"><button role="tab" aria-selected="false" id="toP">Programme</button><button class="on" role="tab" aria-selected="true">Journal</button></div><p class="muted" style="margin-top:0">Tes sorties, depuis les fichiers de ta montre ou saisies à la main.</p>' +
     '<div class="btns two" style="margin-top:0"><label class="btn" for="imp" style="cursor:pointer">Importer FIT / GPX</label><button class="btn ghost" id="man">Saisir une séance</button></div>' +
-    '<input type="file" id="imp" accept=".fit,.gpx,application/gpx+xml,application/octet-stream" multiple class="sr">' +
-    '<p class="note">Sur Coros : appli › activité › ⋯ › Exporter › FIT. Sur Garmin Connect : ⚙ › Exporter l\'original. Plusieurs fichiers à la fois, c\'est possible.</p><div id="impst"></div>';
+    '<input type="file" id="imp" accept=".fit,.gpx,.zip,application/gpx+xml,application/zip,application/octet-stream" multiple class="sr">' +
+    '<p class="note">' + exportHow(S.profile.device) + ' Plusieurs fichiers à la fois, c\'est possible.</p><div id="impst"></div>';
   if (!S.acts.length) h += '<div class="empty" style="margin-top:18px"><b>Ton carnet est vide</b>Importe ta première sortie.</div>';
   else {
     let cur = '';
@@ -1000,6 +1004,20 @@ function vNutrition() {
 }
 
 /* ---------- profil : niveau, disponibilités, terrain, corps ---------- */
+const DEVICES = [['coros', 'Coros'], ['garmin', 'Garmin'], ['apple', 'Apple Watch'], ['suunto', 'Suunto'], ['polar', 'Polar'], ['wahoo', 'Wahoo'], ['other', 'Autre montre'], ['none', 'Pas de montre (téléphone)']];
+function exportHow(d) {
+  return ({
+    coros: 'Coros : appli COROS › ta séance › ⋯ › Exporter › fichier FIT.',
+    garmin: 'Garmin : sur connect.garmin.com (ordinateur), ta séance › ⚙ › « Exporter l\'original » : importe le .zip tel quel.',
+    apple: 'Apple Watch : Santé n\'exporte pas tes séances en fichier. Les applis HealthFit ou RunGap le font : exporte en FIT puis importe ici.',
+    suunto: 'Suunto : appli Suunto › ta séance › ⋯ › Partager › exporter en FIT (ou GPX).',
+    polar: 'Polar : sur flow.polar.com, ta séance › Exporter › FIT ou GPX.',
+    wahoo: 'Wahoo : appli ELEMNT ou Wahoo › ta séance › Partager › FIT.',
+    none: 'Sans montre : exporte le GPX de ton appli de course, ou saisis la séance à la main.'
+  })[d] || 'Exporte le fichier FIT (ou GPX) de ta séance depuis l\'appli de ta montre.';
+}
+function deviceForm(p) { return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' + DEVICES.map(([k, l]) => '<label style="cursor:pointer"><input type="radio" name="dev" class="devr sr" value="' + k + '"' + (p.device === k ? ' checked' : '') + '><span class="pill" style="display:flex;justify-content:center;min-height:46px;font-size:.84rem">' + l + '</span></label>').join('') + '</div>'; }
+const readDevice = () => { const x = document.querySelector('input[name="dev"]:checked'); return x ? x.value : null; };
 const TERR = [['mountain', 'Montagne ou collines'], ['track', 'Piste d\'athlé'], ['treadmill', 'Tapis de course'], ['gym', 'Salle de muscu'], ['bike', 'Vélo ou home-trainer']];
 function levelForm(p) {
   const L = p.level || {};
@@ -1021,15 +1039,16 @@ function bodyForm(p) {
 const readBody = () => { const n = id => +String($(id).value).replace(',', '.') || null; return { weight_kg: n('bw'), height_cm: n('bh'), birth_year: n('by'), sex: $('bs').value || null }; };
 function bodyErr(b) { if (b.weight_kg && (b.weight_kg < 30 || b.weight_kg > 200)) return 'Poids entre 30 et 200 kg.'; if (b.height_cm && (b.height_cm < 120 || b.height_cm > 230)) return 'Taille entre 120 et 230 cm.'; if (b.birth_year && (b.birth_year < 1920 || b.birth_year > 2015)) return 'Année de naissance entre 1920 et 2015.'; return ''; }
 function editSheet(what) {
-  const p = S.profile, F = { level: ['Mon niveau', levelForm], avail: ['Mes disponibilités', availForm], terr: ['Mon terrain', terrForm], body: ['Mon corps', bodyForm] }[what];
+  const p = S.profile, F = { dev: ['Ma montre', deviceForm], level: ['Mon niveau', levelForm], avail: ['Mes disponibilités', availForm], terr: ['Mon terrain', terrForm], body: ['Mon corps', bodyForm] }[what];
   sheet('Profil', F[0], '<form id="ef">' + F[1](p) + '<p class="err" id="ee"></p><div class="btns"><button class="btn">Enregistrer</button></div></form>');
   $('ef').onsubmit = async e => {
     e.preventDefault(); let patch;
     if (what === 'level') patch = { level: readLevel() };
     if (what === 'avail') { const a = readAvail(); if (a.days.length < 2) return $('ee').textContent = 'Choisis au moins 2 jours.'; if (!a.days.includes(a.long_day)) a.days.push(a.long_day); patch = { availability: a }; }
     if (what === 'terr') patch = { terrain: readTerr() };
+    if (what === 'dev') patch = { device: readDevice() };
     if (what === 'body') { patch = readBody(); const er = bodyErr(patch); if (er) return $('ee').textContent = er; }
-    try { await saveProfile(patch); dlg.close(); if (what !== 'body') { await generatePlan('profil'); toast('Profil enregistré, programme recalculé'); } else toast('Profil enregistré'); vMe(); } catch (x) { $('ee').textContent = x.message; }
+    try { await saveProfile(patch); dlg.close(); if (what !== 'body' && what !== 'dev') { await generatePlan('profil'); toast('Profil enregistré, programme recalculé'); } else toast('Profil enregistré'); vMe(); } catch (x) { $('ee').textContent = x.message; }
   };
 }
 
@@ -1219,6 +1238,7 @@ function vMe(sub) {
   h += '<h2 class="sec">Pour mon programme</h2><ul class="list">' +
     '<li><button type="button" class="it edt" data-w="level" style="width:100%;border:0;background:none;color:inherit;text-align:left;cursor:pointer"><div class="li-main"><b>Niveau</b><small>' + (L.years != null ? L.years + ' an' + (L.years > 1 ? 's' : '') + ' de trail · ' + (L.hours || 0) + ' h/sem. · ' + fr(L.dplus || 0) + ' m D+/sem.' : 'à compléter') + '</small></div></button></li>' +
     '<li><button type="button" class="it edt" data-w="avail" style="width:100%;border:0;background:none;color:inherit;text-align:left;cursor:pointer"><div class="li-main"><b>Disponibilités</b><small>' + (A ? A.days.map(d => DOW[d - 1].slice(0, 3)).join(', ') + ' · longue le ' + DOW[A.long_day - 1].toLowerCase() + ' (' + A.long_h + ' h max)' : 'à compléter') + '</small></div></button></li>' +
+    '<li><button type="button" class="it edt" data-w="dev" style="width:100%;border:0;background:none;color:inherit;text-align:left;cursor:pointer"><div class="li-main"><b>Montre</b><small>' + ((DEVICES.find(d => d[0] === p.device) || [0, 'à compléter'])[1]) + '</small></div></button></li>' +
     '<li><button type="button" class="it edt" data-w="terr" style="width:100%;border:0;background:none;color:inherit;text-align:left;cursor:pointer"><div class="li-main"><b>Terrain</b><small>' + (TERR.filter(([k]) => T[k]).map(x => x[1]).join(', ') || 'à compléter') + '</small></div></button></li>' +
     '<li><button type="button" class="it edt" data-w="body" style="width:100%;border:0;background:none;color:inherit;text-align:left;cursor:pointer"><div class="li-main"><b>Corps</b><small>' + (p.weight_kg ? p.weight_kg + ' kg' + (p.height_cm ? ' · ' + p.height_cm + ' cm' : '') : 'pour la nutrition, facultatif') + '</small></div></button></li></ul>';
   h += '<h2 class="sec">Identité et cœur</h2><form id="pf" class="card"><label class="f" for="nm" style="margin-top:0">Prénom</label><input class="in-f" id="nm" maxlength="60" value="' + esc(p.display_name) + '">' +

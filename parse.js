@@ -179,8 +179,25 @@
     return Array.from(new Uint8Array(h)).slice(0, 12).map(function (x) { return x.toString(16).padStart(2, '0'); }).join('');
   }
 
+  // archive .zip (export « original » de Garmin Connect) : on extrait le premier .fit ou .gpx
+  async function unzip(buf) {
+    var dv = new DataView(buf), p = 0;
+    while (p + 30 < buf.byteLength && dv.getUint32(p, true) === 0x04034b50) {
+      var method = dv.getUint16(p + 8, true), csize = dv.getUint32(p + 18, true), nlen = dv.getUint16(p + 26, true), xlen = dv.getUint16(p + 28, true);
+      var nm = new TextDecoder().decode(new Uint8Array(buf, p + 30, nlen)), start = p + 30 + nlen + xlen;
+      if (/\.(fit|gpx)$/i.test(nm)) {
+        var data = buf.slice(start, start + csize);
+        if (method === 8) { if (typeof DecompressionStream === 'undefined') throw new Error('archive .zip non lisible sur cet appareil : décompresse-la d\'abord'); data = await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer(); }
+        else if (method !== 0) throw new Error('format de compression non géré');
+        return { buf: data, name: nm };
+      }
+      p = start + csize;
+    }
+    throw new Error('aucun fichier FIT ou GPX dans l\'archive');
+  }
   async function readFile(file) {
     var buf = await file.arrayBuffer(), name = file.name || '';
+    if (/\.zip$/i.test(name) || (buf.byteLength > 4 && new DataView(buf).getUint32(0, true) === 0x04034b50)) { var z = await unzip(buf); buf = z.buf; name = z.name; }
     var isGpx = /\.gpx$/i.test(name) || new TextDecoder().decode(buf.slice(0, 200)).indexOf('<gpx') >= 0;
     var f = isGpx ? parseGPX(new TextDecoder().decode(buf)) : parseFIT(buf);
     f.kind = isGpx ? 'gpx' : 'fit';

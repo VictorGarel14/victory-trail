@@ -1,5 +1,5 @@
 /* VIC'TORY Trail : l'appli s'ouvre même sans réseau (les données viennent du dernier chargement). */
-const V = 'vtr-1.0.1';
+const V = 'vtr-1.1.0';
 const CORE = ['./', 'index.html', 'app.js', 'parse.js', 'plan.js', 'twin-worker.js', 'vendor/supabase.js', 'manifest.webmanifest', 'icons/logo.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => Promise.all(CORE.map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => {})))).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== V && x !== 'vtr-tiles').map(x => caches.delete(x)))).then(() => self.clients.claim())); });
