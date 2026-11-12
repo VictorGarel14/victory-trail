@@ -159,16 +159,19 @@
   function courseProfile(f) {
     var recs = withDistance(f.records.filter(function (r) { return r.lat != null; }));
     if (recs.length < 2) throw new Error('Le GPX ne contient pas de tracé');
-    var total = recs[recs.length - 1].d, prof = [], next = 0, j = 0;
+    var total = recs[recs.length - 1].d, prof = [], route = [], next = 0, j = 0, n = 0;
     while (next <= total) {
       while (j < recs.length - 1 && recs[j + 1].d < next) j++;
       var a = recs[j], b = recs[Math.min(j + 1, recs.length - 1)], k = b.d > a.d ? (next - a.d) / (b.d - a.d) : 0;
       var alt = a.alt != null && b.alt != null ? a.alt + (b.alt - a.alt) * k : (a.alt != null ? a.alt : 0);
       prof.push([Math.round(next / 10) / 100, Math.round(alt)]);
+      // tracé tous les 200 m (carte, météo, position en direct)
+      if (n++ % 2 === 0) route.push([r5(a.lat + (b.lat - a.lat) * k), r5(a.lon + (b.lon - a.lon) * k), Math.round(next / 10) / 100]);
       next += 100;
     }
+    var last = recs[recs.length - 1]; route.push([r5(last.lat), r5(last.lon), Math.round(total / 10) / 100]);
     var c = climb(recs.map(function (r) { return r.alt; }));
-    return { km: Math.round(total / 10) / 100, dplus: c.up, dminus: c.dn, profile: prof, name: f.name || '' };
+    return { km: Math.round(total / 10) / 100, dplus: c.up, dminus: c.dn, profile: prof, route: route, name: f.name || '' };
   }
 
   async function fileHash(buf) {

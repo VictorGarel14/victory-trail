@@ -6,6 +6,15 @@
 const SB_URL = 'https://vvmfutlpcdgufuowcvte.supabase.co';
 const SB_KEY = 'sb_publishable_5vrAEcRUk75_ucJlDecVxA__k8E9iwi';
 const CHANGES = [
+  { v: '0.2.0', date: '2026-11-12', name: 'Jour J', items: [
+    'Nutrition : glucides, eau et sodium par heure, besoins calculés pour chaque portion entre deux ravitos',
+    'À chaque point : ce que tu prends, ou ce que ton équipe doit te tendre (visible sur son lien)',
+    'Matériel : liste à cocher, avec la liste type du matériel obligatoire des ultras UTMB',
+    'Météo sur le parcours à l\'heure de passage prévue, à partir de J−15',
+    'Bilan après course : temps réel contre prévu à chaque point, rempli depuis le fichier de ta montre',
+    'Les bilans recalent les estimations de tes prochaines courses',
+    'Page équipe : vos rendez-vous en gros, avec ce qu\'il faut tendre'
+  ] },
   { v: '0.1.0', date: '2026-11-12', name: 'Bêta', items: [
     'Création de compte par code reçu par e-mail',
     'Profil cardio : FC max, FC de repos et 5 zones',
@@ -353,38 +362,154 @@ function drawMap(tr) {
 }
 
 /* ---------- courses : modèle de temps de passage ---------- */
-// km-effort d'une portion : km + D+/100 + D−/400 ; temps total = objectif, ou estimé à partir des sorties (loi de Riegel, exposant 1,07)
-function raceModel(r) {
+// km-effort d'une portion : km + D+/100 + D−/400 ; temps total = objectif, ou estimé à partir des sorties
+// (loi de Riegel, exposant 1,07), recalé par tes bilans de course passés
+function refPace() {
+  const ref = S.acts.filter(a => isFoot(a) && a.moving_s && a.distance_m > 6000 && Date.now() - Date.parse(a.start_at) < 120 * 864e5).map(a => ({ e: effortOf(a), t: a.moving_s })).sort((x, y) => x.t / x.e - y.t / y.e);
+  if (ref.length < 3) return null;
+  const best = ref.slice(0, Math.max(3, Math.ceil(ref.length / 3))); // le meilleur tiers de tes sorties récentes
+  return { eM: best.reduce((s, x) => s + x.e, 0) / best.length, sp: best.reduce((s, x) => s + x.t / x.e, 0) / best.length };
+}
+function calib(exceptId) {
+  const k = S.races.filter(r => r.id !== exceptId && r.result && r.result.finish_s && r.result.pred_s).map(r => r.result.finish_s / r.result.pred_s);
+  if (!k.length) return 1; return Math.min(1.5, Math.max(0.7, k.reduce((a, b) => a + b, 0) / k.length));
+}
+function raceModel(r, opt) {
+  opt = opt || {};
   const prof = r.profile, kmT = +r.km || (prof ? prof[prof.length - 1][0] : 0);
   const cum = []; let e = 0;
   if (prof && prof.length > 1) { cum.push([0, 0]); for (let i = 1; i < prof.length; i++) { const dk = prof[i][0] - prof[i - 1][0], da = prof[i][1] - prof[i - 1][1]; e += dk + (da > 0 ? da / 100 : -da / 400); cum.push([prof[i][0], e]); } }
   else { e = kmT + (+r.dplus || 0) / 100 + (+r.dplus || 0) / 400; cum.push([0, 0], [kmT, e]); }
   const effAt = k => { if (k <= 0) return 0; for (let i = 1; i < cum.length; i++) if (cum[i][0] >= k) { const a = cum[i - 1], b = cum[i], f = b[0] > a[0] ? (k - a[0]) / (b[0] - a[0]) : 0; return a[1] + (b[1] - a[1]) * f; } return cum[cum.length - 1][1]; };
-  let total = r.goal_s, how = 'objectif';
-  if (!total) {
-    const ref = S.acts.filter(a => isFoot(a) && a.moving_s && a.distance_m > 6000 && Date.now() - Date.parse(a.start_at) < 120 * 864e5).map(a => ({ e: effortOf(a), t: a.moving_s })).sort((x, y) => x.t / x.e - y.t / y.e);
-    if (ref.length >= 3) {
-      const best = ref.slice(0, Math.max(3, Math.ceil(ref.length / 3))); // le meilleur tiers de tes sorties récentes
-      const eM = best.reduce((s, x) => s + x.e, 0) / best.length, sp = best.reduce((s, x) => s + x.t / x.e, 0) / best.length;
-      total = sp * eM * Math.pow(e / eM, 1.07) * (1 + Math.min(0.12, e / 2000)); how = 'estimation';
-    }
-  }
-  return { eff: e, total, how, effAt, kmT };
+  let total = opt.noGoal ? null : r.goal_s, how = 'objectif', raw = null;
+  const rp = S.user ? refPace() : null;
+  if (rp) raw = rp.sp * rp.eM * Math.pow(e / rp.eM, 1.07) * (1 + Math.min(0.12, e / 2000));
+  if (!total && raw) { const c = calib(r.id); total = raw * c; how = c !== 1 ? 'estimation recalée' : 'estimation'; }
+  const at = k => total ? total * effAt(k) / e : null;
+  return { eff: e, total, how, effAt, kmT, raw, at };
 }
-function passTable(r, m, withCrew) {
-  const cps = (r.checkpoints || []).slice().sort((a, b) => a.km - b.km);
-  const rows = [{ name: 'Départ', km: 0 }].concat(cps).concat([{ name: 'Arrivée', km: m.kmT, alt: null }]);
+const cpList = r => [{ name: 'Départ', km: 0, start: 1 }].concat((r.checkpoints || []).slice().sort((a, b) => a.km - b.km)).concat([{ name: 'Arrivée', km: +r.km || (r.profile ? r.profile[r.profile.length - 1][0] : 0), end: 1 }]);
+function passTable(r, m) {
   if (!m.total) return '<p class="note">Ajoute un temps objectif, ou importe au moins 3 sorties de plus de 6 km, pour obtenir les heures de passage.</p>';
-  return '<table class="tm"><thead><tr><th>Point</th><th class="r">Km</th><th class="r">Temps</th><th class="r">Heure</th></tr></thead><tbody>' + rows.map(c => {
-    const t = m.total * m.effAt(c.km) / m.eff;
-    return '<tr' + (c.crew && withCrew !== false ? ' class="crew"' : '') + '><td><b>' + esc(c.name) + '</b></td><td class="r">' + (+c.km).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + '</td><td class="r">' + hm(t) + '</td><td class="r">' + wallClock(r, t) + '</td></tr>';
-  }).join('') + '</tbody></table><p class="note">' + (m.how === 'objectif' ? 'Calé sur ton objectif de ' + hm(m.total) + '.' : 'Estimation à partir de tes meilleures sorties récentes : ' + hm(m.total) + '. Ajoute un objectif pour la remplacer.') + ' Heures locales de la course (' + esc(r.tz) + '). Les montées comptent plus que les descentes.</p>';
+  const res = r.result && r.result.passes;
+  return '<table class="tm"><thead><tr><th>Point</th><th class="r">Km</th><th class="r">' + (res ? 'Prévu' : 'Temps') + '</th><th class="r">' + (res ? 'Réel' : 'Heure') + '</th></tr></thead><tbody>' + cpList(r).map(c => {
+    const t = m.at(c.km), real = res ? (c.start ? 0 : c.end ? r.result.finish_s : res[c.name]) : null;
+    const d = real != null && t ? real - t : null;
+    return '<tr' + (c.crew ? ' class="crew"' : '') + '><td><b>' + esc(c.name) + '</b>' + (c.give && !res ? '<div class="muted" style="font-size:.8rem">🎒 ' + esc(c.give) + '</div>' : '') + '</td><td class="r">' + (+c.km).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + '</td><td class="r">' + hm(t) + '</td><td class="r">' +
+      (res ? (real != null ? hm(real) + (d != null && !c.start ? '<div style="font-size:.76rem;font-weight:800;color:' + (d <= 0 ? 'var(--turq)' : 'var(--pink)') + '">' + (d <= 0 ? '−' : '+') + hm(Math.abs(d), true) + '</div>' : '') : '–') : wallClock(r, t)) + '</td></tr>';
+  }).join('') + '</tbody></table><p class="note">' + (m.how === 'objectif' ? 'Calé sur ton objectif de ' + hm(m.total) + '.' : (m.how === 'estimation recalée' ? 'Estimation recalée sur tes bilans de course passés : ' : 'Estimation à partir de tes meilleures sorties récentes : ') + hm(m.total) + '. Ajoute un objectif pour la remplacer.') + (res ? '' : ' Heures locales de la course (' + esc(r.tz) + ').') + '</p>';
+}
+
+/* ---------- nutrition ---------- */
+const NUT0 = { carb: 60, water: 500, salt: 500 };
+function nutritionHTML(r, m, crewView) {
+  const n = Object.assign({}, NUT0, r.nutrition || {}), pts = cpList(r);
+  if (!m.total) return '<p class="note">Les besoins se calculent à partir des heures de passage : ajoute un objectif.</p>';
+  let h = crewView ? '' : '<div class="stats"><div class="stat"><span>Glucides</span><b>' + n.carb + ' g</b><span>par heure</span></div><div class="stat"><span>Eau</span><b>' + (n.water / 1000).toLocaleString('fr-FR') + ' L</b><span>par heure</span></div><div class="stat"><span>Sodium</span><b>' + (n.salt / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' g</b><span>par heure</span></div></div>';
+  h += '<table class="tm" style="margin-top:10px"><thead><tr><th>Portion</th><th class="r">Durée</th><th class="r">Glucides</th><th class="r">Eau</th></tr></thead><tbody>';
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i], dt = m.at(b.km) - m.at(a.km), hh = dt / 3600;
+    h += '<tr><td><b>' + esc(a.name) + ' → ' + esc(b.name) + '</b>' + (a.give ? '<div style="font-size:.8rem;color:var(--turq);font-weight:700">' + (a.crew ? 'L\'équipe tend' : 'Prendre') + ' : ' + esc(a.give) + '</div>' : '') + '</td><td class="r">' + hm(dt) + '</td><td class="r">' + fr(n.carb * hh) + ' g</td><td class="r">' + (n.water * hh / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' L</td></tr>';
+  }
+  const H = m.total / 3600;
+  h += '</tbody></table><p class="note">Total : ' + fr(n.carb * H) + ' g de glucides (≈ ' + Math.round(n.carb * H / 25) + ' gels de 25 g), ' + (n.water * H / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' L d\'eau, ' + (n.salt * H / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + ' g de sodium.' + (crewView ? '' : ' Repères courants en ultra : 60 à 90 g de glucides par heure si ton ventre est entraîné ; teste-les à l\'entraînement.') + '</p>';
+  return h;
+}
+function nutritionSheet(r) {
+  const n = Object.assign({}, NUT0, r.nutrition || {}), cps = (r.checkpoints || []).slice().sort((a, b) => a.km - b.km);
+  sheet('Nutrition', r.name, '<form id="nf"><div class="grid2" style="grid-template-columns:1fr 1fr 1fr"><div><label class="f" for="nc">Glucides <small>g/h</small></label><input class="in-f" id="nc" inputmode="numeric" value="' + n.carb + '"></div><div><label class="f" for="nw">Eau <small>ml/h</small></label><input class="in-f" id="nw" inputmode="numeric" value="' + n.water + '"></div><div><label class="f" for="ns">Sodium <small>mg/h</small></label><input class="in-f" id="ns" inputmode="numeric" value="' + n.salt + '"></div></div>' +
+    (cps.length ? '<h2 class="sec">À chaque point</h2>' + cps.map((c, i) => '<label class="f" for="gv' + i + '">' + esc(c.name) + ' <small>km ' + c.km + (c.crew ? ' · équipe' : '') + '</small></label><input class="in-f gv" id="gv' + i + '" data-n="' + esc(c.name) + '" maxlength="140" value="' + esc(c.give || '') + '" placeholder="' + (c.crew ? 'Ex. 2 flasques de boisson, purée, frontale' : 'Ex. remplir les flasques, 2 gels') + '">').join('') : '<p class="note">Ajoute des points de passage (Modifier) pour préparer chaque ravito.</p>') +
+    '<p class="err" id="ne"></p><div class="btns"><button class="btn">Enregistrer</button></div></form>');
+  $('nf').onsubmit = async ev => {
+    ev.preventDefault(); const v = id => Math.round(+$(id).value);
+    const nut = { carb: v('nc'), water: v('nw'), salt: v('ns') };
+    if (!(nut.carb >= 0 && nut.carb <= 150 && nut.water >= 0 && nut.water <= 1500 && nut.salt >= 0 && nut.salt <= 3000)) return $('ne').textContent = 'Valeurs hors limites.';
+    const gv = {}; document.querySelectorAll('#nf .gv').forEach(x => gv[x.dataset.n] = x.value.trim());
+    const cp = (r.checkpoints || []).map(c => Object.assign({}, c, { give: gv[c.name] || undefined }));
+    if (await saveRace(r, { nutrition: nut, checkpoints: cp })) { dlg.close(); vRace(r.id); }
+  };
+}
+
+/* ---------- matériel ---------- */
+const GEAR_UTMB = ['Téléphone chargé, numéro de l\'organisation enregistré', 'Réserve d\'eau 1 L minimum', 'Gobelet personnel', 'Réserve alimentaire', 'Couverture de survie', 'Sifflet', 'Bande élastique adhésive', 'Veste imperméable avec capuche', 'Pantalon ou collant long', 'Couche chaude (manches longues)', 'Bonnet ou buff', 'Gants', 'Deux frontales et piles de rechange', 'Casquette ou bandana', 'Dossard et pièce d\'identité', 'Bâtons', 'Crème anti-frottements', 'Montre chargée, parcours chargé'];
+let gearOpen = false;
+function gearHTML(r) {
+  const g = r.gear || [], done = g.filter(x => x.ok).length;
+  return (g.length ? '<details' + (gearOpen ? ' open' : '') + ' id="gdet"><summary style="cursor:pointer;list-style:none;font-weight:800">' + done + ' / ' + g.length + ' prêts <span class="muted" style="font-weight:600">· ' + (done === g.length ? 'tout est prêt' : 'voir la liste') + '</span></summary><div class="zbar" style="height:8px;margin:8px 0 10px"><i style="display:block;width:' + (100 * done / g.length) + '%;background:var(--turq)"></i></div>' +
+    g.map((x, i) => '<label class="check" style="margin-top:6px;padding:10px 12px"><input type="checkbox" class="gk" data-i="' + i + '"' + (x.ok ? ' checked' : '') + '> <span style="flex:1' + (x.ok ? ';color:var(--muted);text-decoration:line-through' : '') + '">' + esc(x.t) + '</span><button type="button" class="gd" data-i="' + i + '" aria-label="Retirer ' + esc(x.t) + '" style="border:0;background:none;color:var(--muted);font-size:1.1rem;cursor:pointer;padding:0 4px">✕</button></label>').join('') + '</details>'
+    : '<p class="note" style="margin-top:0">Ta liste est vide. Pars de la liste type (matériel obligatoire des ultras UTMB) et adapte-la au règlement de ta course.</p><div class="btns"><button type="button" class="btn ghost" id="gtpl">Charger la liste type</button></div>') +
+    '<form id="gf" class="grid2" style="grid-template-columns:1fr auto;margin-top:10px"><input class="in-f" id="gi" maxlength="120" placeholder="Ajouter un élément" aria-label="Ajouter un élément"><button class="btn" style="width:auto;min-height:48px">Ajouter</button></form>';
+}
+function bindGear(r) {
+  const save = async g => { if (await saveRace(r, { gear: g })) $('gear').innerHTML = gearHTML(r), bindGear(r); };
+  const el = $('gear'); if (!el) return;
+  const det = $('gdet'); if (det) det.ontoggle = () => { gearOpen = det.open; };
+  el.onchange = e => { const c = e.target.closest('.gk'); if (!c) return; const g = r.gear.map(x => Object.assign({}, x)); g[+c.dataset.i].ok = c.checked; save(g); };
+  el.onclick = e => { const d = e.target.closest('.gd'); if (d) { e.preventDefault(); save(r.gear.filter((_, i) => i !== +d.dataset.i)); } if (e.target.id === 'gtpl') save(GEAR_UTMB.map(t => ({ t, ok: false }))); };
+  $('gf').onsubmit = e => { e.preventDefault(); const t = $('gi').value.trim(); if (t) save((r.gear || []).concat({ t, ok: false })); };
+}
+
+/* ---------- météo (Open-Meteo, 16 jours) ---------- */
+const WMO = c => c === 0 ? '☀️' : c <= 2 ? '🌤️' : c === 3 ? '☁️' : c <= 48 ? '🌫️' : c <= 57 ? '🌦️' : c <= 67 ? '🌧️' : c <= 77 ? '🌨️' : c <= 82 ? '🌧️' : c <= 86 ? '🌨️' : '⛈️';
+function routeAt(r, k) { const rt = r.route; if (!rt || !rt.length) return null; let best = rt[0]; for (const p of rt) { if (Math.abs(p[2] - k) < Math.abs(best[2] - k)) best = p; } return best; }
+async function weatherHTML(r, m) {
+  const j = dayDiff(today(), r.race_date);
+  if (!r.route) return '<p class="note">Ajoute le parcours GPX pour avoir la météo sur le tracé.</p>';
+  if (j > 15) return '<p class="note">Prévisions disponibles à partir de J−15 (le ' + fmtD(ymd(new Date(pd(r.race_date) - 15 * 864e5))) + ').</p>';
+  if (j < 0) return '';
+  const pts = cpList(r).filter((c, i, a) => i === 0 || i === a.length - 1 || c.crew || a.length <= 6).slice(0, 8);
+  const ll = pts.map(c => routeAt(r, c.km));
+  const key = 'vtr-wx-' + r.id + '-' + today(); let js = null;
+  try { const c = JSON.parse(LS.get(key) || 'null'); if (c && Date.now() - c.at < 3 * 36e5) js = c.d; } catch (e) {}
+  if (!js) {
+    const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + ll.map(p => p[0]).join(',') + '&longitude=' + ll.map(p => p[1]).join(',') + '&hourly=temperature_2m,apparent_temperature,precipitation_probability,weather_code,wind_speed_10m&timezone=' + encodeURIComponent(r.tz) + '&forecast_days=16';
+    const res = await fetch(u); if (!res.ok) throw new Error('météo indisponible'); js = await res.json(); if (!Array.isArray(js)) js = [js];
+    LS.set(key, JSON.stringify({ at: Date.now(), d: js }));
+  }
+  const [hh0, mm0] = (r.start_time || '07:00').split(':').map(Number);
+  return '<table class="tm"><thead><tr><th>Point</th><th class="r">Heure</th><th class="r">Ciel</th><th class="r">Temp.</th><th class="r">Pluie</th></tr></thead><tbody>' + pts.map((c, i) => {
+    const t = m.total ? m.at(c.km) : 0, d = new Date(Date.UTC(...r.race_date.split('-').map((x, k) => k === 1 ? x - 1 : +x), hh0, mm0) + t * 1000);
+    const iso = d.toISOString().slice(0, 13) + ':00', w = js[i] && js[i].hourly, ix = w ? w.time.indexOf(iso) : -1;
+    if (ix < 0) return '<tr><td><b>' + esc(c.name) + '</b></td><td class="r">' + wallClock(r, t) + '</td><td class="r" colspan="3">pas encore prévu</td></tr>';
+    return '<tr><td><b>' + esc(c.name) + '</b></td><td class="r">' + wallClock(r, t) + '</td><td class="r" style="font-size:1.2rem">' + WMO(w.weather_code[ix]) + '</td><td class="r">' + Math.round(w.temperature_2m[ix]) + '°<div class="muted" style="font-size:.74rem">ressenti ' + Math.round(w.apparent_temperature[ix]) + '°</div></td><td class="r">' + w.precipitation_probability[ix] + ' %<div class="muted" style="font-size:.74rem">vent ' + Math.round(w.wind_speed_10m[ix]) + ' km/h</div></td></tr>';
+  }).join('') + '</tbody></table><p class="note">Prévisions Open-Meteo à l\'heure de passage prévue, mises à jour toutes les 3 h.</p>';
+}
+
+/* ---------- bilan ---------- */
+function resultSheet(r) {
+  const res = r.result || {}, cps = (r.checkpoints || []).slice().sort((a, b) => a.km - b.km);
+  const f = s => s ? Math.floor(s / 3600) + 'h' + String(Math.floor(s % 3600 / 60)).padStart(2, '0') : '';
+  const sameDay = S.acts.filter(a => localDay(a.start_at) === r.race_date || localDay(a.start_at) === ymd(new Date(pd(r.race_date).getTime() + 864e5)));
+  sheet('Bilan', r.name, '<form id="bf">' + (sameDay.length ? '<button type="button" class="btn ghost" id="bauto">Remplir depuis ma séance « ' + esc(sameDay[0].name || 'du jour') + ' »</button><p class="note">Les temps aux points sont lus sur le tracé de ta montre.</p>' : '<p class="note" style="margin-top:0">Astuce : importe le fichier de ta montre du jour de la course, les temps se rempliront tout seuls.</p>') +
+    '<label class="f" for="bfin">Temps final <small>(ex. 21h12)</small></label><input class="in-f" id="bfin" value="' + f(res.finish_s) + '" required>' +
+    cps.map((c, i) => '<label class="f" for="bp' + i + '">' + esc(c.name) + ' <small>km ' + c.km + ' · temps de course</small></label><input class="in-f bp" id="bp' + i + '" data-n="' + esc(c.name) + '" value="' + f(res.passes && res.passes[c.name]) + '" placeholder="facultatif">').join('') +
+    '<label class="f" for="bnote">Ce que je retiens</label><textarea class="in-f" id="bnote" rows="3" maxlength="2000" placeholder="Nutrition, allure, ce qui a marché…">' + esc(res.note || '') + '</textarea><p class="err" id="be"></p><div class="btns"><button class="btn">Enregistrer le bilan</button></div></form>');
+  if ($('bauto')) $('bauto').onclick = async () => {
+    const a = sameDay[0]; let tr = a._track; if (tr === undefined) { const { data } = await sb.from('activities').select('track').eq('id', a.id).maybeSingle(); tr = a._track = data ? data.track : null; }
+    if (!tr || tr.length < 2 || tr[tr.length - 1][3] == null) return $('be').textContent = 'Pas de tracé horodaté sur cette séance.';
+    let d = 0; const cum = tr.map((p, i) => { if (i) d += VTParse.hav({ lat: tr[i - 1][0], lon: tr[i - 1][1] }, { lat: p[0], lon: p[1] }) / 1000; return [d, p[3]]; });
+    const kmR = +r.km || d, scale = d / kmR; // la montre mesure rarement pile la distance officielle
+    const tAt = k => { const x = k * scale; for (let i = 1; i < cum.length; i++) if (cum[i][0] >= x) return cum[i - 1][1] + (cum[i][1] - cum[i - 1][1]) * ((x - cum[i - 1][0]) / ((cum[i][0] - cum[i - 1][0]) || 1)); return cum[cum.length - 1][1]; };
+    $('bfin').value = f(cum[cum.length - 1][1]); document.querySelectorAll('#bf .bp').forEach((x, i) => x.value = f(tAt(cps[i].km)));
+    toast('Temps remplis depuis ta montre');
+  };
+  $('bf').onsubmit = async ev => {
+    ev.preventDefault(); const fin = parseHM($('bfin').value); if (!fin) return $('be').textContent = 'Temps final au format 21h12.';
+    const passes = {}; let bad = false; document.querySelectorAll('#bf .bp').forEach(x => { if (!x.value.trim()) return; const v = parseHM(x.value); if (!v) bad = true; else passes[x.dataset.n] = v; });
+    if (bad) return $('be').textContent = 'Temps aux points au format 9h55.';
+    const m = raceModel(r, { noGoal: true });
+    if (await saveRace(r, { result: { finish_s: fin, pred_s: m.raw ? Math.round(m.raw) : null, passes, note: $('bnote').value.trim() || null, at: new Date().toISOString() } })) { dlg.close(); vRace(r.id); toast('Bilan enregistré'); }
+  };
 }
 
 /* ---------- courses ---------- */
+async function saveRace(r, patch) {
+  const { data, error } = await sb.from('races').update(patch).eq('id', r.id).select().single();
+  if (error) { toast(error.message); return false; } Object.assign(r, data); saveCache(); return true;
+}
 function vRaces() {
   const up = S.races.filter(r => r.race_date >= today()), past = S.races.filter(r => r.race_date < today()).reverse();
-  const li = r => '<li><a href="#/course/' + r.id + '"><div class="dt"><b>' + pd(r.race_date).getDate() + '</b><span>' + MOIS[pd(r.race_date).getMonth()] + '</span></div><div class="li-main"><b>' + esc(r.name) + '</b><small>' + pd(r.race_date).getFullYear() + (r.km ? ' · ' + fr(r.km) + ' km' : '') + (r.dplus ? ' · ' + fr(r.dplus) + ' m D+' : '') + '</small></div><div class="li-side"><span class="pill ' + r.priority.toLowerCase() + '">' + r.priority + '</span>' + (r.race_date >= today() ? '<br><span class="muted">J−' + dayDiff(today(), r.race_date) + '</span>' : '') + '</div></a></li>';
+  const li = r => '<li><a href="#/course/' + r.id + '"><div class="dt"><b>' + pd(r.race_date).getDate() + '</b><span>' + MOIS[pd(r.race_date).getMonth()] + '</span></div><div class="li-main"><b>' + esc(r.name) + '</b><small>' + pd(r.race_date).getFullYear() + (r.km ? ' · ' + fr(r.km) + ' km' : '') + (r.dplus ? ' · ' + fr(r.dplus) + ' m D+' : '') + (r.result && r.result.finish_s ? ' · ' + hm(r.result.finish_s) : '') + '</small></div><div class="li-side"><span class="pill ' + r.priority.toLowerCase() + '">' + r.priority + '</span>' + (r.race_date >= today() ? '<br><span class="muted">J−' + dayDiff(today(), r.race_date) + '</span>' : '') + '</div></a></li>';
   let h = '<div class="hd"><h1>Courses</h1><p>Tes objectifs : A = la course de la saison, B = étape importante, C = préparation.</p></div><div class="btns" style="margin-top:0"><a class="btn" href="#/course/nouvelle">Ajouter une course</a></div>';
   h += up.length ? '<h2 class="sec">À venir</h2><ul class="list">' + up.map(li).join('') + '</ul>' : '<div class="empty" style="margin-top:18px"><b>Aucun objectif</b>Ajoute la course que tu prépares.</div>';
   if (past.length) h += '<h2 class="sec">Courues</h2><ul class="list">' + past.map(li).join('') + '</ul>';
@@ -392,16 +517,27 @@ function vRaces() {
 }
 function vRace(id) {
   const r = S.races.find(x => x.id === id); if (!r) { location.hash = '#/courses'; return; }
-  const m = raceModel(r), j = dayDiff(today(), r.race_date);
-  let h = '<a class="back" href="#/courses">‹ Courses</a><div class="card hero"><div class="lab">Course ' + r.priority + ' · ' + fmtD(r.race_date) + (r.start_time ? ' · ' + r.start_time.slice(0, 5) : '') + '</div><h3>' + esc(r.name) + '</h3><div class="big">' + (j >= 0 ? 'J−' + j : 'Courue') + '</div><div class="row">' + (r.km ? '<span>' + fr(r.km) + ' km</span>' : '') + (r.dplus ? '<span>' + fr(r.dplus) + ' m D+</span>' : '') + (r.goal_s ? '<span>objectif ' + hm(r.goal_s) + '</span>' : '') + '</div></div>';
+  const m = raceModel(r), j = dayDiff(today(), r.race_date), past = j < 0;
+  let h = '<a class="back" href="#/courses">‹ Courses</a><div class="card hero"><div class="lab">Course ' + r.priority + ' · ' + fmtD(r.race_date) + (r.start_time ? ' · ' + r.start_time.slice(0, 5) : '') + '</div><h3>' + esc(r.name) + '</h3><div class="big">' + (!past ? 'J−' + j : r.result && r.result.finish_s ? hm(r.result.finish_s) : 'Courue') + '</div><div class="row">' + (r.km ? '<span>' + fr(r.km) + ' km</span>' : '') + (r.dplus ? '<span>' + fr(r.dplus) + ' m D+</span>' : '') + (r.goal_s ? '<span>objectif ' + hm(r.goal_s) + '</span>' : '') + '</div></div>';
+  if (past) h += '<h2 class="sec">Bilan</h2><div class="card">' + (r.result && r.result.finish_s ? '<p style="margin:0">Temps final <b>' + hm(r.result.finish_s) + '</b>' + (m.total ? ', prévu ' + hm(m.total) : '') + '.</p>' + (r.result.note ? '<p class="note">« ' + esc(r.result.note) + ' »</p>' : '') + '<p class="note">Ton bilan recale les estimations de tes prochaines courses.</p><div class="btns"><button class="btn ghost" id="bil">Modifier le bilan</button></div>' : '<p style="margin:0">Comment ça s\'est passé ? Note ton temps : l\'appli compare au prévu et affine ses estimations pour la suite.</p><div class="btns"><button class="btn" id="bil">Faire mon bilan</button></div>') + '</div>';
+  if (!past && j <= 15 && r.route) h += '<h2 class="sec">Météo sur le parcours</h2><div class="card" id="wx"><p class="note" style="margin-top:0">Chargement des prévisions…</p></div>';
   if (r.profile) h += '<h2 class="sec">Profil</h2><div class="card">' + profileSVG(r.profile, r.checkpoints, { label: 'Profil de ' + r.name }) + '<div class="legend"><span><i style="background:#00E0C2"></i>Assistance</span><span><i style="background:#B3A9BF"></i>Point de passage</span></div></div>';
   h += '<h2 class="sec">Temps de passage</h2><div class="card">' + passTable(r, m) + '</div>';
-  h += '<h2 class="sec">Équipe d\'assistance</h2><div class="card">' + (r.crew_token
-    ? '<p style="margin:0">Ton équipe suit tes heures de passage avec ce lien, sans compte. Elle voit ton prénom, la course, le profil et les points de passage, rien d\'autre.</p><div class="btns"><button class="btn" id="shr">Partager le lien</button><button class="btn ghost" id="cof">Désactiver le lien</button></div>'
-    : '<p style="margin:0">Crée un lien pour que tes suiveurs voient tes heures de passage aux ravitos. Tu peux le désactiver quand tu veux.</p><div class="btns"><button class="btn" id="con">Créer le lien équipe</button></div>') + '</div>';
+  if (!past) {
+    h += '<h2 class="sec">Nutrition</h2><div class="card">' + nutritionHTML(r, m) + '<div class="btns"><button class="btn ghost" id="nut">Régler mes besoins et mes ravitos</button></div></div>';
+    h += '<h2 class="sec">Matériel</h2><div class="card" id="gear">' + gearHTML(r) + '</div>';
+    if (j > 15 && r.route) h += '<h2 class="sec">Météo</h2><div class="card"><p class="note" style="margin-top:0">Prévisions sur le parcours à partir de J−15 (le ' + fmtD(ymd(new Date(pd(r.race_date) - 15 * 864e5))) + ').</p></div>';
+    h += '<h2 class="sec">Équipe d\'assistance</h2><div class="card">' + (r.crew_token
+      ? '<p style="margin:0">Ton équipe suit tes heures de passage, ce qu\'elle doit te tendre et la météo, avec ce lien et sans compte. Elle voit ton prénom et la course, rien d\'autre.</p><div class="btns"><button class="btn" id="shr">Partager le lien</button><button class="btn ghost" id="cof">Désactiver le lien</button></div>'
+      : '<p style="margin:0">Crée un lien pour que tes suiveurs voient tes heures de passage aux ravitos. Tu peux le désactiver quand tu veux.</p><div class="btns"><button class="btn" id="con">Créer le lien équipe</button></div>') + '</div>';
+  }
   h += '<div class="btns two"><a class="btn ghost" href="#/course/' + r.id + '/modifier">Modifier</a><button class="btn danger" id="dl">Supprimer</button></div>';
   shell('races', h);
-  const setTok = async t => { const { data, error } = await sb.from('races').update({ crew_token: t }).eq('id', r.id).select().single(); if (error) return toast(error.message); Object.assign(r, data); saveCache(); vRace(id); };
+  if ($('wx')) weatherHTML(r, m).then(x => { if ($('wx')) $('wx').innerHTML = x; }).catch(() => { if ($('wx')) $('wx').innerHTML = '<p class="note" style="margin-top:0">Météo indisponible pour le moment.</p>'; });
+  if ($('bil')) $('bil').onclick = () => resultSheet(r);
+  if ($('nut')) $('nut').onclick = () => nutritionSheet(r);
+  bindGear(r);
+  const setTok = async t => { if (await saveRace(r, { crew_token: t })) vRace(id); };
   if ($('con')) $('con').onclick = () => setTok(randToken() + randToken().slice(0, 8));
   if ($('cof')) $('cof').onclick = () => { if (confirm('Désactiver le lien ? Ceux qui l\'ont ne verront plus rien.')) setTok(null); };
   if ($('shr')) $('shr').onclick = async () => {
@@ -417,7 +553,7 @@ function vRaceForm(id) {
   const cpRows = () => cps.map((c, i) => '<div class="grid2" style="grid-template-columns:1fr 84px 44px;align-items:end;margin-top:8px" data-i="' + i + '"><div><input class="in-f cpn" aria-label="Nom du point ' + (i + 1) + '" value="' + esc(c.name) + '" placeholder="Nom du point" maxlength="60"></div><div><input class="in-f cpk" aria-label="Kilomètre du point ' + (i + 1) + '" inputmode="decimal" value="' + (c.km ?? '') + '" placeholder="km"></div><button type="button" class="x cpd" aria-label="Retirer le point ' + (i + 1) + '">✕</button><label class="check" style="grid-column:1/-1;margin-top:4px;padding:8px 12px"><input type="checkbox" class="cpc"' + (c.crew ? ' checked' : '') + '> <span>Mon équipe m\'attend ici</span></label></div>').join('');
   const g = r && r.goal_s ? Math.floor(r.goal_s / 3600) + 'h' + String(Math.floor(r.goal_s % 3600 / 60)).padStart(2, '0') : '';
   let h = '<a class="back" href="' + (r ? '#/course/' + r.id : '#/courses') + '">‹ ' + (r ? esc(r.name) : 'Courses') + '</a><div class="hd"><h1>' + (r ? 'Modifier' : 'Nouvelle course') + '</h1></div><form id="rf">' +
-    '<label class="f" for="gp">Parcours GPX <small>(facultatif : distance, D+ et profil calculés)</small></label><input class="in-f" id="gp" type="file" accept=".gpx,application/gpx+xml"><p class="note" id="gpi">' + (r && r.profile ? 'Parcours enregistré. Importer un autre GPX le remplace.' : 'Le GPX se trouve en général sur le site de la course.') + '</p>' +
+    '<label class="f" for="gp">Parcours GPX <small>(facultatif : distance, D+, profil, carte et météo)</small></label><input class="in-f" id="gp" type="file" accept=".gpx,application/gpx+xml"><p class="note" id="gpi">' + (r && r.profile ? 'Parcours enregistré. Importer un autre GPX le remplace.' : 'Le GPX se trouve en général sur le site de la course.') + '</p>' +
     '<label class="f" for="rn">Nom</label><input class="in-f" id="rn" required maxlength="120" value="' + esc(r ? r.name : '') + '">' +
     '<div class="grid2"><div><label class="f" for="rd">Date</label><input class="in-f" id="rd" type="date" required value="' + (r ? r.race_date : '') + '"></div><div><label class="f" for="rt">Heure de départ</label><input class="in-f" id="rt" type="time" value="' + (r && r.start_time ? r.start_time.slice(0, 5) : '') + '"></div></div>' +
     '<label class="f" for="tz">Fuseau horaire de la course</label><select class="in-f" id="tz">' + TZS.map(t => '<option' + ((r ? r.tz : 'Europe/Paris') === t ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>' +
@@ -426,7 +562,7 @@ function vRaceForm(id) {
     '<h2 class="sec">Points de passage</h2><p class="note" style="margin-top:-4px">Ravitos et points d\'assistance, avec leur kilomètre.</p><div id="cps">' + cpRows() + '</div><div class="btns"><button type="button" class="btn ghost" id="cpa">Ajouter un point</button></div>' +
     '<p class="err" id="er"></p><div class="btns"><button class="btn grad">Enregistrer</button></div></form>';
   shell('races', h);
-  const readCps = () => { cps = [...document.querySelectorAll('#cps [data-i]')].map(el => ({ name: el.querySelector('.cpn').value.trim(), km: +String(el.querySelector('.cpk').value).replace(',', '.'), crew: el.querySelector('.cpc').checked })); };
+  const readCps = () => { const old = {}; cps.forEach(c => old[c.name] = c.give); cps = [...document.querySelectorAll('#cps [data-i]')].map(el => { const n = el.querySelector('.cpn').value.trim(); return { name: n, km: +String(el.querySelector('.cpk').value).replace(',', '.'), crew: el.querySelector('.cpc').checked, give: old[n] || undefined }; }); };
   $('cpa').onclick = () => { readCps(); cps.push({ name: '', km: '', crew: false }); $('cps').innerHTML = cpRows(); };
   $('cps').onclick = e => { const b = e.target.closest('.cpd'); if (!b) return; readCps(); cps.splice(+b.closest('[data-i]').dataset.i, 1); $('cps').innerHTML = cpRows(); };
   $('gp').onchange = async e => {
@@ -439,8 +575,9 @@ function vRaceForm(id) {
     const goal = $('rg').value.trim() ? parseHM($('rg').value) : null; if ($('rg').value.trim() && !goal) return E('Objectif au format 21h30.');
     const kmv = +String($('rk').value).replace(',', '.') || null;
     const bad = cps.find(c => !c.name || !(c.km >= 0) || (kmv && c.km > kmv)); if (bad) return E('Chaque point a besoin d\'un nom et d\'un kilomètre dans la course.');
+    if (new Set(cps.map(c => c.name)).size < cps.length) return E('Deux points ne peuvent pas avoir le même nom.');
     const row = { name: $('rn').value.trim(), race_date: $('rd').value, start_time: $('rt').value || null, tz: $('tz').value, km: kmv, dplus: +$('rp').value || null, goal_s: goal, priority: $('rpr').value, checkpoints: cps.sort((a, b) => a.km - b.km) };
-    if (gpx) row.profile = gpx.profile;
+    if (gpx) { row.profile = gpx.profile; row.route = gpx.route; }
     const q = r ? sb.from('races').update(row).eq('id', r.id) : sb.from('races').insert(row);
     const { data, error } = await q.select().single(); if (error) return E(error.message);
     S.races = S.races.filter(x => x.id !== data.id).concat(data).sort((a, b) => a.race_date.localeCompare(b.race_date)); saveCache();
@@ -453,14 +590,20 @@ async function vCrew(token) {
   root.innerHTML = '<div class="loading">Chargement…</div>';
   const { data, error } = await sb.rpc('crew_race', { token });
   if (error || !data) { root.innerHTML = '<div class="auth"><div class="box"><img class="logo" src="icons/logo.svg" alt=""><h1 style="font-size:1.8rem">Lien inactif</h1><p class="muted" style="text-align:center">Ce lien d\'assistance n\'existe pas ou a été désactivé. Demande le nouveau lien au coureur.</p></div></div>'; return; }
-  const r = Object.assign({ checkpoints: [] }, data), j = dayDiff(today(), r.race_date);
-  const m = raceModel(Object.assign({}, r, { goal_s: r.goal_s }));
+  const r = Object.assign({ checkpoints: [], id: 'crew-' + token.slice(0, 8) }, data), j = dayDiff(today(), r.race_date);
+  const m = raceModel(r);
   const st = raceStart(r), dt = st - Date.now();
-  let when = j > 1 ? 'Départ dans ' + j + ' jours' : dt > 0 ? 'Départ dans ' + hm(dt / 1000, true) : (m.total && -dt / 1000 < m.total * 1.4 ? 'Course en cours · ' + hm(-dt / 1000, true) + ' de course' : 'Course terminée');
+  const when = j > 1 ? 'Départ dans ' + j + ' jours' : dt > 0 ? 'Départ dans ' + hm(dt / 1000, true) : (m.total && -dt / 1000 < m.total * 1.4 ? 'Course en cours · ' + hm(-dt / 1000, true) + ' de course' : 'Course terminée');
+  const crewPts = cpList(r).filter(c => c.crew);
   root.innerHTML = '<div class="crewtop"><div class="wrap"><div style="font:800 .74rem var(--f);letter-spacing:.14em;text-transform:uppercase;opacity:.9">Suivi assistance · ' + esc(r.runner || 'coureur') + '</div><h1 style="font:400 2rem/1.05 var(--d);margin:6px 0">' + esc(r.name) + '</h1><div style="font-weight:700">' + fmtD(r.race_date) + (r.start_time ? ' · départ ' + r.start_time.slice(0, 5) : '') + (r.km ? ' · ' + fr(r.km) + ' km' : '') + (r.dplus ? ' · ' + fr(r.dplus) + ' m D+' : '') + '</div><div style="font:400 1.5rem var(--d);margin-top:8px">' + when + '</div></div></div>' +
-    '<main class="wrap fade" style="padding-bottom:40px">' + (r.profile ? '<h2 class="sec">Profil</h2><div class="card">' + profileSVG(r.profile, r.checkpoints) + '<div class="legend"><span><i style="background:#00E0C2"></i>Assistance</span><span><i style="background:#B3A9BF"></i>Point de passage</span></div></div>' : '') +
+    '<main class="wrap fade" style="padding-bottom:40px">' +
+    (crewPts.length && m.total ? '<h2 class="sec">Vos rendez-vous</h2>' + crewPts.map(c => '<div class="card"><div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline"><b style="font:400 1.3rem var(--d);letter-spacing:.02em">' + esc(c.name) + '</b><b style="font:400 1.5rem var(--d);color:var(--turq)">' + wallClock(r, m.at(c.km)) + '</b></div><div class="muted" style="font-size:.86rem">km ' + c.km + ' · après ' + hm(m.at(c.km)) + ' de course</div>' + (c.give ? '<p style="margin:8px 0 0"><b>À lui tendre :</b> ' + esc(c.give) + '</p>' : '') + '</div>').join('') : '') +
+    (j <= 15 && j >= 0 && r.route ? '<h2 class="sec">Météo aux points</h2><div class="card" id="wx"><p class="note" style="margin-top:0">Chargement…</p></div>' : '') +
+    (r.profile ? '<h2 class="sec">Profil</h2><div class="card">' + profileSVG(r.profile, r.checkpoints) + '<div class="legend"><span><i style="background:#00E0C2"></i>Assistance</span><span><i style="background:#B3A9BF"></i>Point de passage</span></div></div>' : '') +
     '<h2 class="sec">Heures de passage prévues</h2><div class="card">' + (m.total ? passTable(r, m) : '<p class="note">Pas encore de temps prévu.</p>') + '</div>' +
+    (m.total ? '<h2 class="sec">Ses besoins</h2><div class="card">' + nutritionHTML(r, m, true) + '</div>' : '') +
     '<p class="note" style="text-align:center;margin-top:24px">Partagé via <b>VIC\'TORY Trail</b> · les heures sont des prévisions.</p></main>';
+  if ($('wx')) weatherHTML(r, m).then(x => { if ($('wx')) $('wx').innerHTML = x; }).catch(() => { if ($('wx')) $('wx').innerHTML = '<p class="note" style="margin-top:0">Météo indisponible.</p>'; });
 }
 
 /* ---------- progrès ---------- */
