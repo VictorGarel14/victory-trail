@@ -1,6 +1,6 @@
 /* VIC'TORY Trail : l'appli s'ouvre même sans réseau (les données viennent du dernier chargement). */
-const V = 'vtr-0.5.0';
-const CORE = ['./', 'index.html', 'app.js', 'parse.js', 'twin-worker.js', 'vendor/supabase.js', 'manifest.webmanifest', 'icons/logo.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
+const V = 'vtr-1.0.0';
+const CORE = ['./', 'index.html', 'app.js', 'parse.js', 'plan.js', 'twin-worker.js', 'vendor/supabase.js', 'manifest.webmanifest', 'icons/logo.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(V).then(c => Promise.all(CORE.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x !== V && x !== 'vtr-tiles').map(x => caches.delete(x)))).then(() => self.clients.claim())); });
 // partage depuis l'appli de la montre (Android) : on garde les fichiers puis on ouvre l'import

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="vt-version" content="0.5.0">
+<meta name="vt-version" content="1.0.0">
 <meta name="theme-color" content="#121016">
 <meta name="description" content="VIC'TORY Trail : ton carnet d'ultra-trail. Séances, courses objectifs, temps de passage et lien pour ton équipe d'assistance.">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -40,7 +40,7 @@ main.wrap{padding:20px 16px calc(96px + env(safe-area-inset-bottom))}
 /* onglets */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:30;background:rgba(18,16,22,.96);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
 nav.tabs .in{max-width:720px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
-nav.tabs a{display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 2px 8px;color:var(--muted);text-decoration:none;font:700 .68rem/1.1 var(--f);letter-spacing:.02em;min-height:56px}
+nav.tabs a{display:flex;flex-direction:column;align-items:center;text-align:center;gap:3px;padding:9px 2px 8px;color:var(--muted);text-decoration:none;font:700 .68rem/1.1 var(--f);letter-spacing:.02em;min-height:56px}
 nav.tabs a svg{width:24px;height:24px}
 nav.tabs a.on{color:var(--ink)}nav.tabs a.on svg{color:var(--pink)}
 /* titres */
@@ -51,13 +51,13 @@ h2.sec{font:800 .78rem/1 var(--f);letter-spacing:.14em;text-transform:uppercase;
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px}
 .card+.card{margin-top:12px}
 .hero{position:relative;overflow:hidden;border:0;background:var(--grad);color:#fff}
-.hero .lab{font:800 .74rem/1 var(--f);letter-spacing:.14em;text-transform:uppercase;opacity:.9}
+.hero .lab{font:800 .74rem/1.35 var(--f);letter-spacing:.14em;text-transform:uppercase;opacity:.9}
 .hero h3{font:400 1.7rem/1.05 var(--d);margin:8px 0 4px;letter-spacing:.02em}
 .hero .big{font:400 3.2rem/1 var(--d);letter-spacing:.02em}
 .hero .row{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-weight:700}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
-.stat b{display:block;font:400 1.55rem/1.1 var(--d);letter-spacing:.02em}
+.stat b{display:block;font:400 clamp(1.2rem,5.4vw,1.55rem)/1.1 var(--d);letter-spacing:.02em}
 .stat span{font-size:.78rem;color:var(--muted);font-weight:600}
 .stat small{display:block;font-size:.74rem;font-weight:700;margin-top:2px}
 .up{color:var(--turq)}.down{color:var(--muted)}
@@ -134,6 +134,7 @@ dialog.sheet h2{font:400 1.6rem/1.1 var(--d);margin:2px 0 0;letter-spacing:.02em
 .sig-foot{text-align:center;font:600 1.15rem var(--c);color:var(--muted);margin:30px 0 0}
 .prose h2{font:400 1.3rem var(--d);letter-spacing:.03em;margin:22px 0 6px}.prose p,.prose li{color:var(--ink);line-height:1.55}
 .crewtop{background:var(--grad);color:#fff;padding:calc(18px + env(safe-area-inset-top)) 0 18px}
+.avd:checked+.pill{background:var(--pink);border-color:var(--pink);color:#fff}.avd:focus-visible+.pill{outline:3px solid var(--turq);outline-offset:2px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .loading{display:grid;place-items:center;min-height:60vh;color:var(--muted)}
 @media (prefers-reduced-motion:no-preference){.fade{animation:fd .25s ease-out}@keyframes fd{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}}
@@ -146,6 +147,7 @@ dialog.sheet h2{font:400 1.6rem/1.1 var(--d);margin:2px 0 0;letter-spacing:.02em
 <noscript><p style="padding:16px">VIC'TORY Trail a besoin de JavaScript.</p></noscript>
 <script src="vendor/supabase.js"></script>
 <script src="parse.js"></script>
+<script src="plan.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
