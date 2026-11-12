@@ -6,6 +6,12 @@
 const SB_URL = 'https://vvmfutlpcdgufuowcvte.supabase.co';
 const SB_KEY = 'sb_publishable_5vrAEcRUk75_ucJlDecVxA__k8E9iwi';
 const CHANGES = [
+  { v: '0.5.0', date: '2026-11-12', name: 'VIC\'TORY', items: [
+    '18 trophées à débloquer : Mille, Le mur, Nuit blanche, Centurion, Finisher…',
+    'Image de partage aux couleurs VIC\'TORY pour une sortie, un objectif ou un finish, prête pour Instagram',
+    'Rappels sur ton téléphone : J−30, J−7, veille et jour J de tes courses, et le dimanche si ta semaine n\'est pas importée',
+    'Sur Android : partage le fichier de ta montre directement vers VIC\'TORY depuis l\'appli Coros ou Garmin'
+  ] },
   { v: '0.4.0', date: '2026-11-12', name: 'Forme', items: [
     'Forme du jour : forme (42 jours), fatigue (7 jours) et fraîcheur, calculées à partir de tes zones cardio ou de ton ressenti',
     'Courbe de forme et de fatigue sur 120 jours dans Progrès',
@@ -307,7 +313,8 @@ async function importFiles(files) {
     } catch (e) { bad.push(file.name + ' (' + (e.message || 'illisible') + ')'); }
   }
   S.acts.sort((a, b) => b.start_at.localeCompare(a.start_at)); saveCache();
-  vActs();
+  if (location.hash.replace(/^#\/?/, '').split('/')[0] !== 'seances') location.hash = '#/seances';
+  vActs(); if (ok) setTimeout(newBadges, 600);
   $('impst').innerHTML = '<div class="card" style="margin-top:12px"><b>' + ok + ' séance' + (ok > 1 ? 's' : '') + ' ajoutée' + (ok > 1 ? 's' : '') + '</b>' + (dup ? '<p class="note">' + dup + ' déjà dans ton carnet.</p>' : '') + (bad.length ? '<p class="note" style="color:var(--red)">Non lu : ' + bad.map(esc).join(', ') + '</p>' : '') + '</div>';
 }
 function defaultName(s) {
@@ -345,8 +352,9 @@ async function vAct(id) {
   h += '<div id="trk"><p class="note">Chargement du tracé…</p></div>';
   if (a.zone_s && hrOK() && a.zone_s.some(Boolean)) h += '<h2 class="sec">Temps dans les zones</h2><div class="card">' + zoneRows(a.zone_s) + '</div>';
   h += '<h2 class="sec">Ressenti</h2><div class="card"><div class="seg" id="rpe" role="group" aria-label="Ressenti de 1 à 10">' + [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => '<button type="button" data-n="' + n + '"' + (a.rpe === n ? ' class="on" aria-pressed="true"' : ' aria-pressed="false"') + '>' + n + '</button>').join('') + '</div><label class="f" for="nt">Note</label><textarea class="in-f" id="nt" rows="3" maxlength="2000" placeholder="Jambes, météo, nutrition…">' + esc(a.note) + '</textarea><div class="btns"><button class="btn ghost" id="svn">Enregistrer la note</button></div></div>';
-  h += '<div class="btns two"><button class="btn ghost" id="ed">Modifier</button><button class="btn danger" id="dl">Supprimer</button></div>';
+  h += '<div class="btns"><button class="btn grad" id="shimg">Partager l\'image</button></div><div class="btns two"><button class="btn ghost" id="ed">Modifier</button><button class="btn danger" id="dl">Supprimer</button></div>';
   shell('acts', h);
+  $('shimg').onclick = async () => { const b = $('shimg'); b.disabled = true; b.textContent = 'Création de l\'image…'; try { await shareAct(a); } catch (e) { toast(e.message); } b.disabled = false; b.textContent = 'Partager l\'image'; };
   $('rpe').onclick = async e => { const b = e.target.closest('button'); if (!b) return; const n = +b.dataset.n; const { error } = await sb.from('activities').update({ rpe: n }).eq('id', a.id); if (error) return toast(error.message); a.rpe = n; saveCache(); $('rpe').querySelectorAll('button').forEach(x => { const on = +x.dataset.n === n; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); }); toast('Ressenti enregistré'); };
   $('svn').onclick = async () => { const v = $('nt').value.trim() || null; const { error } = await sb.from('activities').update({ note: v }).eq('id', a.id); if (error) return toast(error.message); a.note = v; saveCache(); toast('Note enregistrée'); };
   $('ed').onclick = () => manualForm(a);
@@ -634,8 +642,9 @@ function vRace(id) {
       : '<p style="margin:0">Crée un lien pour que tes suiveurs voient tes heures de passage aux ravitos. Tu peux le désactiver quand tu veux.</p><div class="btns"><button class="btn" id="con">Créer le lien équipe</button></div>') + '</div>';
   }
   if (r.profile && !past) h += '<h2 class="sec">S\'entraîner sur le parcours</h2><a class="card" href="#/course/' + r.id + '/jumeau" style="display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:var(--ink)"><span><b>Jumeau local</b><br><span class="muted" style="font-size:.84rem">Les montées et descentes de la course, retrouvées dans tes sorties</span></span><span style="color:var(--muted);font-size:1.3rem">›</span></a>';
-  h += '<div class="btns two"><a class="btn ghost" href="#/course/' + r.id + '/modifier">Modifier</a><button class="btn danger" id="dl">Supprimer</button></div>';
+  h += '<div class="btns"><button class="btn grad" id="shimg">' + (past && r.result && r.result.finish_s ? 'Partager mon finish' : 'Partager mon objectif') + '</button></div><div class="btns two"><a class="btn ghost" href="#/course/' + r.id + '/modifier">Modifier</a><button class="btn danger" id="dl">Supprimer</button></div>';
   shell('races', h);
+  $('shimg').onclick = async () => { const b = $('shimg'), t = b.textContent; b.disabled = true; b.textContent = 'Création de l\'image…'; try { await shareRace(r); } catch (e) { toast(e.message); } b.disabled = false; b.textContent = t; };
   if ($('wx')) weatherHTML(r, m).then(x => { if ($('wx')) $('wx').innerHTML = x; }).catch(() => { if ($('wx')) $('wx').innerHTML = '<p class="note" style="margin-top:0">Météo indisponible pour le moment.</p>'; });
   if (live) { runnerLive(r, m); liveTimer = setInterval(() => { if (!dlg.open) runnerLive(r, m); }, 60e3); }
   if ($('bil')) $('bil').onclick = () => resultSheet(r);
@@ -844,6 +853,129 @@ async function vTwin(id) {
   wk.postMessage({ profile: r.profile, acts });
 }
 
+/* ---------- trophées ---------- */
+const BADGES = [
+  { id: 'first', e: '👟', t: 'Premier pas', d: 'Ta première séance dans le carnet', f: A => A[0] },
+  { id: 'ten', e: '🔟', t: 'Dix sorties', d: '10 séances enregistrées', f: A => A[9] },
+  { id: 'fifty', e: '🏅', t: 'Cinquante', d: '50 séances enregistrées', f: A => A[49] },
+  { id: 'd1000', e: '⛰️', t: 'Mille', d: '1 000 m de D+ en une sortie', f: A => A.find(a => a.elev_gain >= 1000) },
+  { id: 'd2000', e: '🏔️', t: 'Le mur', d: '2 000 m de D+ en une sortie', f: A => A.find(a => a.elev_gain >= 2000) },
+  { id: 'wk3000', e: '📈', t: 'Semaine verticale', d: '3 000 m de D+ en une semaine', f: A => weekly(A).find(w => w.dp >= 3000) },
+  { id: 'mara', e: '🏃', t: 'Marathonien', d: '42,2 km en une sortie', f: A => A.find(a => isFoot(a) && a.distance_m >= 42195) },
+  { id: 'ultra', e: '🦄', t: 'Ultra', d: 'Plus de 50 km en une sortie', f: A => A.find(a => isFoot(a) && a.distance_m >= 50000) },
+  { id: 'cent', e: '💯', t: 'Centurion', d: '100 km en une sortie', f: A => A.find(a => isFoot(a) && a.distance_m >= 100000) },
+  { id: 'night', e: '🌙', t: 'Nuit blanche', d: 'Une sortie qui traverse minuit', f: A => A.find(a => { const s = new Date(a.start_at), e = new Date(+s + (a.elapsed_s || 0) * 1000); return a.elapsed_s && s.getDate() !== e.getDate(); }) },
+  { id: 'dawn', e: '🌅', t: 'Lève-tôt', d: 'Partir avant 6 h du matin', f: A => A.find(a => new Date(a.start_at).getHours() < 6) },
+  { id: 'long6', e: '⏱️', t: 'Six heures', d: '6 h d\'effort en une sortie', f: A => A.find(a => (a.moving_s || a.elapsed_s) >= 6 * 3600) },
+  { id: 'reg', e: '🔁', t: 'Régulier', d: '4 semaines de suite avec 3 séances ou plus', f: A => { const w = weekly(A); for (let i = 3; i < w.length; i++) if (w.slice(i - 3, i + 1).every(x => x.n >= 3 && x.cons)) return w[i]; } },
+  { id: 'm100', e: '🗓️', t: 'Mois à 100', d: '100 km en un mois', f: A => { const m = {}; for (const a of A.slice().reverse()) { if (!isFoot(a)) continue; const k = a.start_at.slice(0, 7); m[k] = (m[k] || 0) + (a.distance_m || 0); if (m[k] >= 100000) return a; } } },
+  { id: 'race', e: '🎯', t: 'Objectif', d: 'Ta première course objectif', f: () => S.races[0] && { start_at: S.races[0].created_at } },
+  { id: 'crew', e: '🤝', t: 'Équipe prête', d: 'Un lien partagé avec ton équipe d\'assistance', f: () => S.races.find(r => r.crew_token) && { start_at: S.races.find(r => r.crew_token).updated_at } },
+  { id: 'fin', e: '🏁', t: 'Finisher', d: 'Un bilan de course enregistré', f: () => { const r = S.races.find(r => r.result && r.result.finish_s); return r && { start_at: r.result.at || r.race_date }; } },
+  { id: 'goal', e: '⚡', t: 'Dans les temps', d: 'Finir une course sous ton objectif', f: () => { const r = S.races.find(r => r.result && r.goal_s && r.result.finish_s <= r.goal_s); return r && { start_at: r.result.at || r.race_date }; } }
+];
+function weekly(A) { // semaines chronologiques
+  const m = {}; A.forEach(a => { const k = ymd(weekStart(new Date(a.start_at))); (m[k] = m[k] || { k, n: 0, dp: 0, start_at: a.start_at }); m[k].n++; m[k].dp += a.elev_gain || 0; });
+  const w = Object.values(m).sort((a, b) => a.k.localeCompare(b.k)); w.forEach((x, i) => x.cons = i === 0 || dayDiff(w[i - 1].k, x.k) === 7); return w;
+}
+function badges() { const A = S.acts.slice().sort((a, b) => a.start_at.localeCompare(b.start_at)); return BADGES.map(b => { let h = null; try { h = b.f(A); } catch (e) {} return Object.assign({}, b, { got: !!h, at: h && (h.start_at || h.k) }); }); }
+function badgeSVG(b, size) {
+  return '<svg viewBox="0 0 100 110" width="' + size + '" height="' + Math.round(size * 1.1) + '" aria-hidden="true"><defs><linearGradient id="bgr" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF2D8E"/><stop offset=".55" stop-color="#9B3DFF"/><stop offset="1" stop-color="#00E0C2"/></linearGradient></defs><path d="M50 4 93 28v54L50 106 7 82V28z" fill="' + (b.got ? 'url(#bgr)' : '#2A2533') + '" stroke="' + (b.got ? '#fff' : '#37303F') + '" stroke-width="3"/><text x="50" y="66" text-anchor="middle" font-size="36"' + (b.got ? '' : ' opacity=".25"') + '>' + b.e + '</text></svg>';
+}
+function vBadges() {
+  const B = badges(), n = B.filter(b => b.got).length;
+  shell('me', '<a class="back" href="#/profil">‹ Profil</a><div class="hd"><h1>Trophées</h1><p>' + n + ' sur ' + B.length + ' débloqués.</p></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">' +
+    B.map(b => '<div class="card" style="text-align:center;padding:12px 8px' + (b.got ? '' : ';opacity:.75') + '">' + badgeSVG(b, 64) + '<b style="display:block;font-size:.84rem;line-height:1.2;margin-top:6px">' + esc(b.t) + '</b><small class="muted" style="display:block;font-size:.72rem;line-height:1.3;margin-top:3px">' + esc(b.d) + '</small>' + (b.got && b.at ? '<small style="display:block;color:var(--turq);font-size:.7rem;font-weight:800;margin-top:4px">' + fmtD(localDay(b.at)) + '</small>' : '') + '</div>').join('') + '</div>');
+}
+function newBadges() {
+  const key = 'vtr-badges-' + S.user.id, had = (LS.get(key) || '').split(',').filter(Boolean), B = badges().filter(b => b.got), ids = B.map(b => b.id);
+  LS.set(key, ids.join(','));
+  if (!LS.get(key + '-init')) { LS.set(key + '-init', '1'); return; } // première fois : pas d'avalanche
+  const nw = B.filter(b => !had.includes(b.id)); if (!nw.length || dlg.open) return;
+  sheet('Trophée débloqué', nw.length > 1 ? nw.length + ' nouveaux trophées' : nw[0].t, '<div style="display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin:10px 0">' + nw.map(b => '<div style="text-align:center;width:120px">' + badgeSVG(b, 90) + '<b style="display:block">' + esc(b.t) + '</b><small class="muted">' + esc(b.d) + '</small></div>').join('') + '</div><div class="btns"><button class="btn grad" id="bok">Continuer</button><a class="btn ghost" href="#/trophees">Tous mes trophées</a></div>');
+  $('bok').onclick = () => dlg.close();
+}
+
+/* ---------- carte de partage (image 1080 × 1350) ---------- */
+async function shareCard(o) {
+  try { await Promise.all([document.fonts.load('80px Anton'), document.fonts.load('700 40px Montserrat'), document.fonts.load('600 50px Caveat')]); } catch (e) {}
+  const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, W, H); gr.addColorStop(0, '#FF2D8E'); gr.addColorStop(0.55, '#9B3DFF'); gr.addColorStop(1, '#00E0C2'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  g.fillStyle = 'rgba(18,16,22,.86)'; g.fillRect(48, 48, W - 96, H - 96);
+  const fit = (txt, font, size, maxW) => { let z = size; do { g.font = font.replace('#', z); z -= 2; } while (g.measureText(txt).width > maxW && z > 12); };
+  let lx = 96; try { const im = new Image(); im.src = 'icons/logo.svg'; await im.decode(); g.drawImage(im, 96, 92, 64, 64); lx = 176; } catch (e) {}
+  g.fillStyle = '#fff'; g.font = '64px Anton, Impact, sans-serif'; g.fillText('VIC\'TORY', lx, 150); const vw = g.measureText('VIC\'TORY').width;
+  g.font = '700 28px Montserrat, sans-serif'; g.fillStyle = '#B3A9BF'; g.fillText('TRAIL', lx + vw + 18, 150);
+  g.fillStyle = '#00E0C2'; g.font = '800 30px Montserrat, sans-serif'; g.fillText(o.kicker.toUpperCase(), 96, 250);
+  g.fillStyle = '#fff'; fit(o.title.toUpperCase().split(' ').sort((a, b) => b.length - a.length)[0], '#px Anton, Impact, sans-serif', 92, W - 192);
+  const words = o.title.toUpperCase().split(' '); let line = '', y = 350; const lines = [];
+  words.forEach(w => { const t = line ? line + ' ' + w : w; if (g.measureText(t).width > W - 192 && line) { lines.push(line); line = w; } else line = t; }); lines.push(line);
+  lines.slice(0, 3).forEach(l => { g.fillText(l, 96, y); y += 100; });
+  // profil
+  if (o.profile && o.profile.length > 1) {
+    const x0 = 96, x1 = W - 96, y0 = y + 20, y1 = y + 300, km = o.profile[o.profile.length - 1][0]; let lo = Infinity, hi = -Infinity; o.profile.forEach(p => { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); }); if (hi - lo < 50) hi = lo + 50;
+    const X = k => x0 + (x1 - x0) * k / km, Y = a => y1 - (y1 - y0) * (a - lo) / (hi - lo);
+    g.beginPath(); g.moveTo(X(0), y1); o.profile.forEach(p => g.lineTo(X(p[0]), Y(p[1]))); g.lineTo(X(km), y1); g.closePath(); const pf = g.createLinearGradient(0, y0, 0, y1); pf.addColorStop(0, 'rgba(155,61,255,.6)'); pf.addColorStop(1, 'rgba(155,61,255,0)'); g.fillStyle = pf; g.fill();
+    g.beginPath(); o.profile.forEach((p, i) => i ? g.lineTo(X(p[0]), Y(p[1])) : g.moveTo(X(p[0]), Y(p[1]))); g.strokeStyle = gr; g.lineWidth = 6; g.lineJoin = 'round'; g.stroke();
+    y = y1 + 40;
+  } else y += 40;
+  // chiffres
+  const st = o.stats.slice(0, 3), cw = (W - 192) / st.length;
+  let ns = 84; st.forEach(s => { fit(s[1], '#px Anton, Impact, sans-serif', 84, cw - 24); ns = Math.min(ns, parseInt(g.font)); });
+  st.forEach((s, i) => { const x = 96 + i * cw; g.fillStyle = '#B3A9BF'; g.font = '700 28px Montserrat, sans-serif'; g.fillText(s[0].toUpperCase(), x, y + 40); g.fillStyle = '#fff'; g.font = ns + 'px Anton, Impact, sans-serif'; g.fillText(s[1], x, y + 130); });
+  g.fillStyle = '#B3A9BF'; g.font = '600 30px Montserrat, sans-serif'; g.fillText(o.date, 96, H - 190);
+  g.fillStyle = '#00E0C2'; fit('continuer à rêver, juste assez pour tenir debout', '600 #px Caveat, cursive', 46, W - 192); g.fillText('continuer à rêver, juste assez pour tenir debout', 96, H - 110);
+  const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+  const file = new File([blob], 'victory-' + (o.slug || 'sortie') + '.png', { type: 'image/png' });
+  try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: o.title }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+  const u = URL.createObjectURL(blob), a = document.createElement('a'); a.href = u; a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 5000); toast('Image enregistrée');
+}
+async function shareAct(a) {
+  let tr = a._track; if (tr === undefined) { const { data } = await sb.from('activities').select('track').eq('id', a.id).maybeSingle(); tr = a._track = data ? data.track : null; }
+  let prof = null; if (tr && tr.some(p => p[2] != null)) { let d = 0; prof = tr.map((p, i) => { if (i) d += VTParse.hav({ lat: tr[i - 1][0], lon: tr[i - 1][1] }, { lat: p[0], lon: p[1] }) / 1000; return [d, p[2] == null ? 0 : p[2]]; }); }
+  const d = new Date(a.start_at);
+  await shareCard({ kicker: SPORT[a.sport] || 'Sortie', title: a.name || 'Sortie', profile: prof, stats: [['Distance', km1(a.distance_m) + ' km'], ['D+', fr(a.elev_gain) + ' m'], ['Temps', hm(a.moving_s || a.elapsed_s)]], date: JOURS[d.getDay()] + ' ' + d.getDate() + ' ' + MOIS[d.getMonth()] + ' ' + d.getFullYear(), slug: localDay(a.start_at) });
+}
+async function shareRace(r) {
+  const fin = r.result && r.result.finish_s;
+  await shareCard({ kicker: fin ? 'Finisher' : 'Objectif · J−' + dayDiff(today(), r.race_date), title: r.name, profile: r.profile, stats: [['Distance', fr(r.km) + ' km'], ['D+', fr(r.dplus) + ' m'], fin ? ['Temps', hm(fin)] : ['Date', pd(r.race_date).getDate() + ' ' + MOIS[pd(r.race_date).getMonth()]]], date: fmtD(r.race_date), slug: r.race_date });
+}
+
+/* ---------- rappels (notifications) ---------- */
+const FN = SB_URL + '/functions/v1/push';
+const b64u8 = s => { const p = '='.repeat((4 - s.length % 4) % 4), b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+async function pushState() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return 'off';
+  const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && await reg.pushManager.getSubscription();
+  return sub ? 'on' : Notification.permission === 'denied' ? 'denied' : 'ready';
+}
+async function pushOn() {
+  if (await Notification.requestPermission() !== 'granted') throw new Error('Notifications refusées dans les réglages du téléphone.');
+  const reg = await navigator.serviceWorker.ready;
+  const { publicKey } = await (await fetch(FN + '?pub=1')).json();
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u8(publicKey) });
+  const j = sub.toJSON();
+  await sb.from('push_subs').delete().eq('endpoint', j.endpoint);
+  const { error } = await sb.from('push_subs').insert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }); if (error) throw error;
+  const { data } = await sb.auth.getSession();
+  fetch(FN, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + data.session.access_token }, body: '{"test":true}' }).catch(() => {});
+}
+async function pushOff() {
+  const reg = await navigator.serviceWorker.getRegistration(); const sub = reg && await reg.pushManager.getSubscription();
+  if (sub) { await sb.from('push_subs').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); }
+}
+
+/* ---------- partage depuis la montre (Android) ---------- */
+async function vShared() {
+  shell('acts', '<div class="hd"><h1>Import</h1><p>Lecture des fichiers partagés…</p></div>');
+  try {
+    const c = await caches.open('vtr-share'), keys = await c.keys(), files = [];
+    for (const k of keys) { const r = await c.match(k); const b = await r.blob(); files.push(new File([b], decodeURIComponent(r.headers.get('x-name') || 'partage.fit'))); await c.delete(k); }
+    location.hash = '#/seances'; await new Promise(r => setTimeout(r, 50));
+    if (files.length) importFiles(files); else toast('Aucun fichier reçu');
+  } catch (e) { toast('Import impossible : ' + e.message); location.hash = '#/seances'; }
+}
+
 /* ---------- progrès ---------- */
 function vProg() {
   const N = 12, ws0 = weekStart(new Date()), W = [];
@@ -860,6 +992,8 @@ function vProg() {
   }
   const foot = S.acts.filter(isFoot), rec = (f, k) => foot.slice().sort((a, b) => (b[k] || 0) - (a[k] || 0))[0];
   const lg = rec(0, 'distance_m'), dp = rec(0, 'elev_gain'), lt = rec(0, 'moving_s');
+  const BG = badges(), got = BG.filter(b => b.got);
+  h += '<h2 class="sec">Trophées</h2><a class="card" href="#/trophees" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink)"><span style="display:flex;gap:4px">' + (got.length ? got.slice(-4).map(b => badgeSVG(b, 34)).join('') : badgeSVG(BG[0], 34)) + '</span><span style="flex:1"><b>' + got.length + ' sur ' + BG.length + '</b><br><span class="muted" style="font-size:.84rem">Voir tous les trophées</span></span><span style="color:var(--muted);font-size:1.3rem">›</span></a>';
   h += '<h2 class="sec">Records</h2><ul class="list">' + [[lg, 'Plus longue sortie', a => km1(a.distance_m) + ' km'], [dp, 'Plus gros D+', a => fr(a.elev_gain) + ' m'], [lt, 'Plus longue durée', a => hm(a.moving_s)]].filter(x => x[0]).map(([a, t, f]) => '<li><a href="#/seance/' + a.id + '"><div class="li-main"><b>' + t + '</b><small>' + esc(a.name || '') + ' · ' + fmtD(localDay(a.start_at)) + '</small></div><div class="li-side">' + f(a) + '</div></a></li>').join('') + '</ul>';
   shell('prog', h);
   const draw = k => { $('pc').innerHTML = barsSVG(W.map(w => k === 'h' ? w.s / 3600 : k === 'km' ? w.m / 1000 : w.dp), lab, { label: 'Volume par semaine' }); };
@@ -879,7 +1013,8 @@ function vMe(sub) {
     '<div class="grid2"><div><label class="f" for="hx">FC max</label><input class="in-f" id="hx" inputmode="numeric" value="' + (p.hr_max || '') + '"></div><div><label class="f" for="hr">FC repos</label><input class="in-f" id="hr" inputmode="numeric" value="' + (p.hr_rest || '') + '"></div></div>' +
     '<p class="err" id="er"></p><div class="btns"><button class="btn">Enregistrer</button></div></form>';
   if (z && hrOK()) h += '<h2 class="sec">Mes zones</h2><div class="card">' + z.map((r, i) => '<div class="zrow" style="grid-template-columns:34px 1fr auto"><span style="color:' + ZC[i] + '">' + ZN[i] + '</span><span>' + ZL[i] + '</span><span>' + (i ? r[0] : '< ' + (r[1] + 1)) + (i ? '–' + r[1] : '') + ' bpm</span></div>').join('') + '<p class="note">Calculées en % de ta FC max (72, 82, 87, 92 %). Si tu as fait un test d\'effort, dis-le-nous : la saisie de zones personnalisées arrive bientôt.</p></div>';
-  h += '<h2 class="sec">Appli</h2><ul class="list"><li><a href="#/profil/versions"><div class="li-main"><b>Nouveautés</b><small>Version ' + APPV + '</small></div></a></li><li><a href="#/confidentialite"><div class="li-main"><b>Confidentialité</b><small>Ce qu\'on garde, et pourquoi</small></div></a></li><li><div class="it"><div class="li-main"><b>Strava</b><small>Bientôt : voir tes nouvelles sorties Strava ici</small></div></div></li></ul>';
+  h += '<h2 class="sec">Rappels</h2><div class="card" id="pushc"><p class="note" style="margin-top:0">Vérification…</p></div>';
+  h += '<h2 class="sec">Appli</h2><ul class="list"><li><a href="#/trophees"><div class="li-main"><b>Trophées</b><small>' + badges().filter(b => b.got).length + ' sur ' + BADGES.length + ' débloqués</small></div></a></li><li><a href="#/profil/versions"><div class="li-main"><b>Nouveautés</b><small>Version ' + APPV + '</small></div></a></li><li><a href="#/confidentialite"><div class="li-main"><b>Confidentialité</b><small>Ce qu\'on garde, et pourquoi</small></div></a></li><li><div class="it"><div class="li-main"><b>Strava</b><small>Bientôt : voir tes nouvelles sorties Strava ici</small></div></div></li></ul>';
   h += '<h2 class="sec">Mes données</h2><div class="btns" style="margin-top:0"><button class="btn ghost" id="ex">Exporter toutes mes données</button><button class="btn ghost" id="lo">Me déconnecter</button><button class="btn danger" id="del">Supprimer mon compte</button></div><p class="sig-foot">continuer à rêver, juste assez pour tenir debout</p>';
   shell('me', h);
   $('pf').onsubmit = async ev => {
@@ -893,6 +1028,14 @@ function vMe(sub) {
       toast('Profil enregistré'); vMe();
     } catch (e) { E(e.message); }
   };
+  const drawPush = async () => {
+    const el = $('pushc'); if (!el) return; const st = await pushState().catch(() => 'off');
+    const ios = /iPhone|iPad/.test(navigator.userAgent), standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+    el.innerHTML = st === 'off' ? '<p style="margin:0">' + (ios && !standalone ? 'Sur iPhone, les rappels marchent quand l\'appli est sur l\'écran d\'accueil : Partager › « Sur l\'écran d\'accueil », puis ouvre-la depuis l\'icône.' : 'Cet appareil ne gère pas les notifications.') + '</p>'
+      : '<p style="margin:0">J−30, J−7, veille et jour J de tes courses, et un petit rappel le dimanche si ta semaine n\'est pas importée.</p>' + (st === 'denied' ? '<p class="note">Notifications bloquées : autorise-les dans les réglages du téléphone.</p>' : '<div class="btns"><button class="btn ' + (st === 'on' ? 'ghost' : '') + '" id="pbt">' + (st === 'on' ? 'Couper les rappels sur cet appareil' : 'Activer les rappels') + '</button></div>');
+    if ($('pbt')) $('pbt').onclick = async () => { const b = $('pbt'); b.disabled = true; try { if (st === 'on') { await pushOff(); toast('Rappels coupés'); } else { await pushOn(); toast('Rappels activés'); } } catch (e) { toast(e.message || 'Impossible'); } drawPush(); };
+  };
+  drawPush();
   $('ex').onclick = exportData;
   $('lo').onclick = async () => { await sb.auth.signOut(); LS.del(cacheKey()); S.user = null; location.hash = '#/'; boot(); };
   $('del').onclick = () => {
@@ -955,6 +1098,8 @@ function route() {
     case 'courses': return vRaces();
     case 'course': return parts[1] === 'nouvelle' ? vRaceForm(null) : parts[2] === 'modifier' ? vRaceForm(parts[1]) : parts[2] === 'jumeau' ? vTwin(parts[1]) : vRace(parts[1]);
     case 'plan': return vPlan();
+    case 'trophees': return vBadges();
+    case 'partage': return vShared();
     case 'progres': return vProg();
     case 'profil': return vMe(parts[1]);
     default: return vToday();
@@ -970,7 +1115,7 @@ async function boot() {
   const cached = loadCache(); if (cached && S.profile && S.profile.onboarded) route();
   try { await loadAll(); }
   catch (e) { if (!cached) { root.innerHTML = '<div class="auth"><div class="box"><h1 style="font-size:1.8rem">Hors ligne</h1><p class="muted" style="text-align:center">Impossible de charger ton carnet. Vérifie ta connexion.</p><div class="btns"><button class="btn" id="rl">Réessayer</button></div></div></div>'; $('rl').onclick = () => location.reload(); return; } toast('Hors ligne : dernières données connues'); }
-  route(); whatsNew();
+  route(); whatsNew(); setTimeout(() => { if (S.loaded) newBadges(); }, 800);
 }
 sb.auth.onAuthStateChange((ev, session) => { if (ev === 'SIGNED_OUT') { S.user = null; } else if (session) S.user = session.user; });
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
