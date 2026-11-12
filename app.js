@@ -6,6 +6,14 @@
 const SB_URL = 'https://vvmfutlpcdgufuowcvte.supabase.co';
 const SB_KEY = 'sb_publishable_5vrAEcRUk75_ucJlDecVxA__k8E9iwi';
 const CHANGES = [
+  { v: '0.3.0', date: '2026-11-12', name: 'En direct', items: [
+    'Le jour de la course : bouton « Je suis à… » pour pointer chaque ravito en un geste',
+    'Partage de ta position GPS tant que l\'appli est ouverte (l\'écran reste allumé)',
+    'Heures d\'arrivée recalculées à chaque pointage : en avance ou en retard sur le prévu',
+    'Ton équipe pointe aussi : « Je l\'ai vu passer », depuis son lien, sans compte',
+    'Carte en direct avec ta dernière position sur la page équipe, mise à jour chaque minute',
+    'Lien de suivi de ta montre (Coros, Garmin) ou de l\'organisation, à portée de clic pour l\'équipe'
+  ] },
   { v: '0.2.0', date: '2026-11-12', name: 'Jour J', items: [
     'Nutrition : glucides, eau et sodium par heure, besoins calculés pour chaque portion entre deux ravitos',
     'À chaque point : ce que tu prends, ou ce que ton équipe doit te tendre (visible sur son lien)',
@@ -243,7 +251,7 @@ function vToday() {
   let h = '<div class="hd"><h1>Salut ' + esc(p.display_name || '') + '</h1><p>' + fmtDs(today()).replace(/^./, c => c.toUpperCase()) + '</p></div>';
   if (nr) {
     const j = dayDiff(today(), nr.race_date);
-    h += '<a class="card hero" href="#/course/' + nr.id + '" style="display:block;text-decoration:none"><div class="lab">Objectif · course ' + nr.priority + '</div><h3>' + esc(nr.name) + '</h3><div class="big">J−' + j + '</div><div class="row"><span>' + fmtD(nr.race_date) + '</span>' + (nr.km ? '<span>' + fr(nr.km) + ' km</span>' : '') + (nr.dplus ? '<span>' + fr(nr.dplus) + ' m D+</span>' : '') + '</div></a>';
+    h += '<a class="card hero" href="#/course/' + nr.id + '" style="display:block;text-decoration:none"><div class="lab">Objectif · course ' + nr.priority + '</div><h3>' + esc(nr.name) + '</h3><div class="big">' + (j === 0 ? 'Jour J' : 'J−' + j) + '</div><div class="row"><span>' + fmtD(nr.race_date) + '</span>' + (nr.km ? '<span>' + fr(nr.km) + ' km</span>' : '') + (nr.dplus ? '<span>' + fr(nr.dplus) + ' m D+</span>' : '') + '</div></a>';
   } else h += '<a class="card hero" href="#/course/nouvelle" style="display:block;text-decoration:none"><div class="lab">Pas encore d\'objectif</div><h3>Ajoute ta prochaine course</h3><div class="row"><span>Parcours, ravitos, heures de passage ›</span></div></a>';
   h += '<h2 class="sec">Cette semaine</h2><div class="stats"><div class="stat"><span>Temps</span><b>' + hm(w.s) + '</b>' + delta(w.s, avg('s'), x => hm(x, true)) + '</div><div class="stat"><span>Distance</span><b>' + km1(w.m) + ' km</b>' + delta(w.m, avg('m'), x => km1(x) + ' km') + '</div><div class="stat"><span>D+</span><b>' + fr(w.dp) + ' m</b>' + delta(w.dp, avg('dp'), x => fr(x) + ' m') + '</div></div><p class="note">Comparé à la moyenne des 4 semaines précédentes.</p>';
   const last = S.acts[0];
@@ -502,6 +510,89 @@ function resultSheet(r) {
   };
 }
 
+/* ---------- en direct ---------- */
+function liveWindow(r, m) { const st = raceStart(r).getTime(), now = Date.now(); return now > st - 6 * 36e5 && now < st + (m.total || 40 * 3600) * 1600; }
+function liveState(r, m, passes) {
+  const st = raceStart(r).getTime();
+  const ps = (passes || []).filter(p => p.km != null).map(p => Object.assign({}, p, { e: (Date.parse(p.at) - st) / 1000 })).filter(p => p.e > -1800).sort((a, b) => a.e - b.e);
+  if (!ps.length || !m.total) return null;
+  // le coureur avance toujours : la position retenue est le point le plus loin (le plus récent à égalité)
+  const byKm = (a, b) => a.km - b.km || a.e - b.e;
+  const last = ps.slice().sort(byKm).pop(), pts = ps.filter(p => p.by !== 'gps' && p.km > 0).sort(byKm);
+  const ref = pts.length ? pts[pts.length - 1] : (last.km > 0 ? last : null);
+  let ratio = 1; if (ref) { const pr = m.at(ref.km); if (pr > 600) { const w = Math.min(1, ref.km / Math.max(10, m.kmT * 0.3)); ratio = 1 + (Math.min(2, Math.max(0.6, ref.e / pr)) - 1) * w; } }
+  const eta = k => k <= last.km ? null : last.e + (m.at(k) - m.at(last.km)) * ratio;
+  return { last, ratio, eta, delta: ref ? ref.e - m.at(ref.km) : 0 };
+}
+function liveHTML(r, m, L, crewView) {
+  if (!L) return '<p class="note" style="margin-top:0">' + (crewView ? 'Pas encore de pointage. Dès qu\'un passage est noté (par le coureur, par l\'équipe ou par son GPS), les heures se recalculent ici.' : 'Pas encore de pointage. Note tes passages ou partage ta position : ton équipe verra ses heures recalculées.') + '</p>';
+  const p = L.last, who = { runner: crewView ? 'pointé par le coureur' : 'ton pointage', crew: 'pointé par l\'équipe', gps: 'position GPS' }[p.by];
+  const ago = (Date.now() - Date.parse(p.at)) / 1000;
+  const next = cpList(r).filter(c => c.km > p.km);
+  let h = '<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><div><div class="muted" style="font:800 .72rem var(--f);letter-spacing:.12em;text-transform:uppercase">Dernière position</div><b style="font:400 1.45rem var(--d);letter-spacing:.02em">' + (p.cp_name ? esc(p.cp_name) : 'km ' + (+p.km).toLocaleString('fr-FR', { maximumFractionDigits: 1 })) + '</b></div><div style="text-align:right"><b style="font:400 1.45rem var(--d)">' + wallClock(r, p.e) + '</b><div class="muted" style="font-size:.78rem">il y a ' + hm(Math.max(0, ago), true) + '</div></div></div>' +
+    '<p class="note">' + who + ' · ' + (Math.abs(L.delta) < 120 ? 'dans les temps prévus' : '<b style="color:' + (L.delta < 0 ? 'var(--turq)' : 'var(--pink)') + '">' + (L.delta < 0 ? 'en avance de ' : 'en retard de ') + hm(Math.abs(L.delta), true) + '</b> sur le prévu') + '</p>';
+  if (next.length) h += '<table class="tm" style="margin-top:6px"><thead><tr><th>Prochains points</th><th class="r">Prévu</th><th class="r">Recalculé</th></tr></thead><tbody>' + next.slice(0, 6).map(c => '<tr' + (c.crew ? ' class="crew"' : '') + '><td><b>' + esc(c.name) + '</b><div class="muted" style="font-size:.78rem">km ' + (+c.km).toLocaleString('fr-FR', { maximumFractionDigits: 1 }) + '</div></td><td class="r muted">' + wallClock(r, m.at(c.km)) + '</td><td class="r"><b>' + wallClock(r, L.eta(c.km)) + '</b></td></tr>').join('') + '</tbody></table>';
+  return h;
+}
+async function loadPasses(r, token) {
+  if (token) { const { data, error } = await sb.rpc('crew_passes', { token }); if (error) throw error; return data || []; }
+  const { data, error } = await sb.from('race_passes').select('at,cp_name,km,by,lat,lon').eq('race_id', r.id).order('at', { ascending: false }).limit(400);
+  if (error) throw error; return data || [];
+}
+function liveMap(r, L, elId) {
+  if (!r.route) return;
+  loadLeaflet().then(() => {
+    const el = $(elId); if (!el) return; if (el._map) el._map.remove();
+    const mp = L_map(el), ll = r.route.map(p => [p[0], p[1]]), line = window.L.polyline(ll, { color: '#9B3DFF', weight: 4, opacity: .8 }).addTo(mp);
+    (r.checkpoints || []).forEach(c => { const p = routeAt(r, c.km); if (p) window.L.circleMarker([p[0], p[1]], { radius: 5, color: '#fff', weight: 2, fillColor: c.crew ? '#00E0C2' : '#B3A9BF', fillOpacity: 1 }).bindTooltip(c.name).addTo(mp); });
+    if (L && L.last) { const p = L.last.lat != null ? [L.last.lat, L.last.lon] : (routeAt(r, L.last.km) || []).slice(0, 2); if (p.length) { window.L.circleMarker(p, { radius: 9, color: '#fff', weight: 3, fillColor: '#FF2D8E', fillOpacity: 1 }).addTo(mp); mp.setView(p, 13); el._map = mp; return; } }
+    mp.fitBounds(line.getBounds(), { padding: [16, 16] }); el._map = mp;
+  }).catch(() => { const el = $(elId); if (el) el.outerHTML = '<p class="note">Carte indisponible hors ligne.</p>'; });
+}
+function L_map(el) { const mp = window.L.map(el, { scrollWheelZoom: false }); window.L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 16, attribution: '© OpenStreetMap · OpenTopoMap' }).addTo(mp); return mp; }
+
+// partage de position (seulement quand l'appli est ouverte, écran allumé)
+const GPS = { watch: null, lock: null, lastSent: 0, lastKm: 0, race: null, sent: 0, err: '' };
+function projectKm(r, lat, lon) {
+  if (!r.route) return null; let best = null, bd = 1e9;
+  for (const p of r.route) { if (p[2] < GPS.lastKm - 2 || p[2] > GPS.lastKm + 40) continue; const d = VTParse.hav({ lat, lon }, { lat: p[0], lon: p[1] }); if (d < bd) { bd = d; best = p; } }
+  return best && bd < 1000 ? best[2] : null;
+}
+async function gpsStart(r) {
+  if (!navigator.geolocation) { toast('Pas de GPS sur cet appareil'); return; }
+  GPS.race = r; GPS.err = '';
+  try { if ('wakeLock' in navigator) GPS.lock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  GPS.watch = navigator.geolocation.watchPosition(async pos => {
+    const { latitude: lat, longitude: lon, accuracy } = pos.coords; if (accuracy > 150) return;
+    const now = Date.now(); if (now - GPS.lastSent < 110e3) return;
+    const km = projectKm(r, lat, lon); if (km != null) GPS.lastKm = km;
+    GPS.lastSent = now;
+    const { error } = await sb.from('race_passes').insert({ race_id: r.id, at: new Date(now).toISOString(), km, by: 'gps', lat: Math.round(lat * 1e5) / 1e5, lon: Math.round(lon * 1e5) / 1e5 });
+    if (error) GPS.err = error.message; else GPS.sent++;
+    const st = $('gpsst'); if (st) st.textContent = 'Position envoyée ' + GPS.sent + ' fois' + (km != null ? ' · km ' + km.toLocaleString('fr-FR') : '') + '.';
+  }, e => { GPS.err = e.message; const st = $('gpsst'); if (st) st.textContent = 'GPS : ' + e.message; }, { enableHighAccuracy: true, maximumAge: 30000, timeout: 60000 });
+}
+function gpsStop() { if (GPS.watch != null) navigator.geolocation.clearWatch(GPS.watch); GPS.watch = null; if (GPS.lock) GPS.lock.release().catch(() => {}); GPS.lock = null; GPS.race = null; }
+document.addEventListener('visibilitychange', async () => { if (!document.hidden && GPS.watch != null && !GPS.lock && 'wakeLock' in navigator) try { GPS.lock = await navigator.wakeLock.request('screen'); } catch (e) {} });
+
+async function runnerLive(r, m) {
+  const el = $('live'); if (!el) return;
+  let passes = []; try { passes = await loadPasses(r); } catch (e) {}
+  const L = liveState(r, m, passes), lastKm = L ? L.last.km : 0, next = cpList(r).filter(c => c.km > lastKm)[0];
+  el.innerHTML = liveHTML(r, m, L) +
+    '<div class="btns">' + (next ? '<button class="btn grad" id="ptn">Je suis à ' + esc(next.name) + '</button>' : '') + '<button class="btn ghost" id="pto">Pointer un autre point</button>' +
+    '<button class="btn ' + (GPS.watch != null ? 'danger' : 'ghost') + '" id="gpsb">' + (GPS.watch != null ? 'Arrêter le partage de position' : 'Partager ma position') + '</button></div>' +
+    '<p class="note" id="gpsst">' + (GPS.watch != null ? 'Position partagée tant que l\'appli reste ouverte, écran allumé.' : 'Sur téléphone, la position n\'est envoyée que si l\'appli reste ouverte, écran allumé. Pour un suivi continu, ajoute le lien de suivi de ta montre (Modifier).') + '</p>' +
+    (r.live_url ? '<div class="btns"><a class="btn ghost" href="' + esc(r.live_url) + '" target="_blank" rel="noopener">Ouvrir mon suivi montre ↗</a></div>' : '');
+  const point = async (name, km) => { const { error } = await sb.from('race_passes').insert({ race_id: r.id, cp_name: name, km, by: 'runner' }); if (error) return toast(error.message); toast('Passage à ' + name + ' noté'); GPS.lastKm = km; runnerLive(r, m); };
+  if ($('ptn')) $('ptn').onclick = () => point(next.name, next.km);
+  $('pto').onclick = () => {
+    sheet('Pointer', r.name, '<ul class="list">' + cpList(r).map((c, i) => '<li><button type="button" class="it" data-i="' + i + '" style="width:100%;border:0;background:none;color:inherit;text-align:left;cursor:pointer"><div class="li-main"><b>' + esc(c.name) + '</b><small>km ' + c.km + '</small></div></button></li>').join('') + '</ul>');
+    $('shB').onclick = e => { const b = e.target.closest('[data-i]'); if (!b) return; const c = cpList(r)[+b.dataset.i]; dlg.close(); point(c.name, c.km); };
+  };
+  $('gpsb').onclick = () => { if (GPS.watch != null) gpsStop(); else gpsStart(r); runnerLive(r, m); };
+}
+
 /* ---------- courses ---------- */
 async function saveRace(r, patch) {
   const { data, error } = await sb.from('races').update(patch).eq('id', r.id).select().single();
@@ -518,7 +609,9 @@ function vRaces() {
 function vRace(id) {
   const r = S.races.find(x => x.id === id); if (!r) { location.hash = '#/courses'; return; }
   const m = raceModel(r), j = dayDiff(today(), r.race_date), past = j < 0;
-  let h = '<a class="back" href="#/courses">‹ Courses</a><div class="card hero"><div class="lab">Course ' + r.priority + ' · ' + fmtD(r.race_date) + (r.start_time ? ' · ' + r.start_time.slice(0, 5) : '') + '</div><h3>' + esc(r.name) + '</h3><div class="big">' + (!past ? 'J−' + j : r.result && r.result.finish_s ? hm(r.result.finish_s) : 'Courue') + '</div><div class="row">' + (r.km ? '<span>' + fr(r.km) + ' km</span>' : '') + (r.dplus ? '<span>' + fr(r.dplus) + ' m D+</span>' : '') + (r.goal_s ? '<span>objectif ' + hm(r.goal_s) + '</span>' : '') + '</div></div>';
+  let h = '<a class="back" href="#/courses">‹ Courses</a><div class="card hero"><div class="lab">Course ' + r.priority + ' · ' + fmtD(r.race_date) + (r.start_time ? ' · ' + r.start_time.slice(0, 5) : '') + '</div><h3>' + esc(r.name) + '</h3><div class="big">' + (!past ? (j === 0 ? 'Jour J' : 'J−' + j) : r.result && r.result.finish_s ? hm(r.result.finish_s) : 'Courue') + '</div><div class="row">' + (r.km ? '<span>' + fr(r.km) + ' km</span>' : '') + (r.dplus ? '<span>' + fr(r.dplus) + ' m D+</span>' : '') + (r.goal_s ? '<span>objectif ' + hm(r.goal_s) + '</span>' : '') + '</div></div>';
+  const live = !past && liveWindow(r, m);
+  if (live) h += '<h2 class="sec">En direct</h2><div class="card" id="live"><p class="note" style="margin-top:0">Chargement…</p></div>';
   if (past) h += '<h2 class="sec">Bilan</h2><div class="card">' + (r.result && r.result.finish_s ? '<p style="margin:0">Temps final <b>' + hm(r.result.finish_s) + '</b>' + (m.total ? ', prévu ' + hm(m.total) : '') + '.</p>' + (r.result.note ? '<p class="note">« ' + esc(r.result.note) + ' »</p>' : '') + '<p class="note">Ton bilan recale les estimations de tes prochaines courses.</p><div class="btns"><button class="btn ghost" id="bil">Modifier le bilan</button></div>' : '<p style="margin:0">Comment ça s\'est passé ? Note ton temps : l\'appli compare au prévu et affine ses estimations pour la suite.</p><div class="btns"><button class="btn" id="bil">Faire mon bilan</button></div>') + '</div>';
   if (!past && j <= 15 && r.route) h += '<h2 class="sec">Météo sur le parcours</h2><div class="card" id="wx"><p class="note" style="margin-top:0">Chargement des prévisions…</p></div>';
   if (r.profile) h += '<h2 class="sec">Profil</h2><div class="card">' + profileSVG(r.profile, r.checkpoints, { label: 'Profil de ' + r.name }) + '<div class="legend"><span><i style="background:#00E0C2"></i>Assistance</span><span><i style="background:#B3A9BF"></i>Point de passage</span></div></div>';
@@ -534,6 +627,7 @@ function vRace(id) {
   h += '<div class="btns two"><a class="btn ghost" href="#/course/' + r.id + '/modifier">Modifier</a><button class="btn danger" id="dl">Supprimer</button></div>';
   shell('races', h);
   if ($('wx')) weatherHTML(r, m).then(x => { if ($('wx')) $('wx').innerHTML = x; }).catch(() => { if ($('wx')) $('wx').innerHTML = '<p class="note" style="margin-top:0">Météo indisponible pour le moment.</p>'; });
+  if (live) { runnerLive(r, m); liveTimer = setInterval(() => { if (!dlg.open) runnerLive(r, m); }, 60e3); }
   if ($('bil')) $('bil').onclick = () => resultSheet(r);
   if ($('nut')) $('nut').onclick = () => nutritionSheet(r);
   bindGear(r);
@@ -559,6 +653,7 @@ function vRaceForm(id) {
     '<label class="f" for="tz">Fuseau horaire de la course</label><select class="in-f" id="tz">' + TZS.map(t => '<option' + ((r ? r.tz : 'Europe/Paris') === t ? ' selected' : '') + '>' + t + '</option>').join('') + '</select>' +
     '<div class="grid2"><div><label class="f" for="rk">Distance <small>(km)</small></label><input class="in-f" id="rk" inputmode="decimal" value="' + (r && r.km != null ? r.km : '') + '"></div><div><label class="f" for="rp">D+ <small>(m)</small></label><input class="in-f" id="rp" inputmode="numeric" value="' + (r && r.dplus != null ? r.dplus : '') + '"></div></div>' +
     '<div class="grid2"><div><label class="f" for="rg">Objectif <small>(ex. 21h30)</small></label><input class="in-f" id="rg" value="' + g + '" placeholder="facultatif"></div><div><label class="f" for="rpr">Priorité</label><select class="in-f" id="rpr">' + ['A', 'B', 'C'].map(x => '<option' + ((r ? r.priority : 'A') === x ? ' selected' : '') + '>' + x + '</option>').join('') + '</select></div></div>' +
+    '<label class="f" for="rl">Lien de suivi en direct <small>(montre ou organisation, facultatif)</small></label><input class="in-f" id="rl" type="url" inputmode="url" maxlength="500" placeholder="https://…" value="' + esc(r && r.live_url || '') + '"><p class="note">Coros : appli › Profil › Suivi en direct. Garmin : LiveTrack. Ou la page de suivi officielle de la course.</p>' +
     '<h2 class="sec">Points de passage</h2><p class="note" style="margin-top:-4px">Ravitos et points d\'assistance, avec leur kilomètre.</p><div id="cps">' + cpRows() + '</div><div class="btns"><button type="button" class="btn ghost" id="cpa">Ajouter un point</button></div>' +
     '<p class="err" id="er"></p><div class="btns"><button class="btn grad">Enregistrer</button></div></form>';
   shell('races', h);
@@ -576,7 +671,8 @@ function vRaceForm(id) {
     const kmv = +String($('rk').value).replace(',', '.') || null;
     const bad = cps.find(c => !c.name || !(c.km >= 0) || (kmv && c.km > kmv)); if (bad) return E('Chaque point a besoin d\'un nom et d\'un kilomètre dans la course.');
     if (new Set(cps.map(c => c.name)).size < cps.length) return E('Deux points ne peuvent pas avoir le même nom.');
-    const row = { name: $('rn').value.trim(), race_date: $('rd').value, start_time: $('rt').value || null, tz: $('tz').value, km: kmv, dplus: +$('rp').value || null, goal_s: goal, priority: $('rpr').value, checkpoints: cps.sort((a, b) => a.km - b.km) };
+    const lu = $('rl').value.trim(); if (lu && !/^https:\/\/\S+$/.test(lu)) return E('Le lien de suivi doit commencer par https://');
+    const row = { name: $('rn').value.trim(), race_date: $('rd').value, start_time: $('rt').value || null, tz: $('tz').value, km: kmv, dplus: +$('rp').value || null, goal_s: goal, priority: $('rpr').value, live_url: lu || null, checkpoints: cps.sort((a, b) => a.km - b.km) };
     if (gpx) { row.profile = gpx.profile; row.route = gpx.route; }
     const q = r ? sb.from('races').update(row).eq('id', r.id) : sb.from('races').insert(row);
     const { data, error } = await q.select().single(); if (error) return E(error.message);
@@ -597,6 +693,7 @@ async function vCrew(token) {
   const crewPts = cpList(r).filter(c => c.crew);
   root.innerHTML = '<div class="crewtop"><div class="wrap"><div style="font:800 .74rem var(--f);letter-spacing:.14em;text-transform:uppercase;opacity:.9">Suivi assistance · ' + esc(r.runner || 'coureur') + '</div><h1 style="font:400 2rem/1.05 var(--d);margin:6px 0">' + esc(r.name) + '</h1><div style="font-weight:700">' + fmtD(r.race_date) + (r.start_time ? ' · départ ' + r.start_time.slice(0, 5) : '') + (r.km ? ' · ' + fr(r.km) + ' km' : '') + (r.dplus ? ' · ' + fr(r.dplus) + ' m D+' : '') + '</div><div style="font:400 1.5rem var(--d);margin-top:8px">' + when + '</div></div></div>' +
     '<main class="wrap fade" style="padding-bottom:40px">' +
+    (liveWindow(r, m) ? '<h2 class="sec">En direct</h2><div class="card" id="clive"><p class="note" style="margin-top:0">Chargement…</p></div>' + (r.route ? '<div id="cmap" style="height:260px;border-radius:var(--r);overflow:hidden;border:1px solid var(--line);margin-top:10px" role="img" aria-label="Carte du parcours et dernière position"></div>' : '') + '<div class="btns"><button class="btn" id="seen">Je l\'ai vu passer</button>' + (r.live_url ? '<a class="btn ghost" href="' + esc(r.live_url) + '" target="_blank" rel="noopener">Suivre sa montre en direct ↗</a>' : '') + '</div>' : (r.live_url ? '<div class="btns"><a class="btn ghost" href="' + esc(r.live_url) + '" target="_blank" rel="noopener">Lien de suivi en direct ↗</a></div>' : '')) +
     (crewPts.length && m.total ? '<h2 class="sec">Vos rendez-vous</h2>' + crewPts.map(c => '<div class="card"><div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline"><b style="font:400 1.3rem var(--d);letter-spacing:.02em">' + esc(c.name) + '</b><b style="font:400 1.5rem var(--d);color:var(--turq)">' + wallClock(r, m.at(c.km)) + '</b></div><div class="muted" style="font-size:.86rem">km ' + c.km + ' · après ' + hm(m.at(c.km)) + ' de course</div>' + (c.give ? '<p style="margin:8px 0 0"><b>À lui tendre :</b> ' + esc(c.give) + '</p>' : '') + '</div>').join('') : '') +
     (j <= 15 && j >= 0 && r.route ? '<h2 class="sec">Météo aux points</h2><div class="card" id="wx"><p class="note" style="margin-top:0">Chargement…</p></div>' : '') +
     (r.profile ? '<h2 class="sec">Profil</h2><div class="card">' + profileSVG(r.profile, r.checkpoints) + '<div class="legend"><span><i style="background:#00E0C2"></i>Assistance</span><span><i style="background:#B3A9BF"></i>Point de passage</span></div></div>' : '') +
@@ -604,6 +701,17 @@ async function vCrew(token) {
     (m.total ? '<h2 class="sec">Ses besoins</h2><div class="card">' + nutritionHTML(r, m, true) + '</div>' : '') +
     '<p class="note" style="text-align:center;margin-top:24px">Partagé via <b>VIC\'TORY Trail</b> · les heures sont des prévisions.</p></main>';
   if ($('wx')) weatherHTML(r, m).then(x => { if ($('wx')) $('wx').innerHTML = x; }).catch(() => { if ($('wx')) $('wx').innerHTML = '<p class="note" style="margin-top:0">Météo indisponible.</p>'; });
+  if ($('clive')) {
+    const draw = async () => { let ps = []; try { ps = await loadPasses(r, token); } catch (e) {} const L = liveState(r, m, ps); if ($('clive')) $('clive').innerHTML = liveHTML(r, m, L, true); liveMap(r, L, 'cmap'); };
+    draw(); liveTimer = setInterval(() => { if (!dlg.open) draw(); }, 60e3);
+    $('seen').onclick = () => {
+      const opts = cpList(r);
+      sheet('Je l\'ai vu passer', r.name, '<form id="sf"><label class="f" for="sp">Où ?</label><select class="in-f" id="sp">' + opts.map(c => '<option>' + esc(c.name) + '</option>').join('') + '</select><label class="f" for="sa">Quand ?</label><select class="in-f" id="sa"><option value="0">À l\'instant</option><option value="5">Il y a 5 min</option><option value="10">Il y a 10 min</option><option value="20">Il y a 20 min</option><option value="30">Il y a 30 min</option><option value="60">Il y a 1 h</option></select><p class="err" id="se"></p><div class="btns"><button class="btn">Noter le passage</button></div></form>');
+      $('sf').onsubmit = async ev => { ev.preventDefault(); const at = new Date(Date.now() - (+$('sa').value) * 6e4).toISOString();
+        const { error } = await sb.rpc('crew_add_pass', { token, cp: $('sp').value, seen_at: at }); if (error) return $('se').textContent = /hors course/.test(error.message) ? 'La course n\'a pas lieu à cette heure-là.' : error.message;
+        dlg.close(); toast('Passage noté, heures recalculées'); draw(); };
+    };
+  }
 }
 
 /* ---------- progrès ---------- */
@@ -701,13 +809,15 @@ function whatsNew() {
 })();
 
 /* ---------- routeur ---------- */
+let liveTimer = null;
 function route() {
   const h = location.hash.replace(/^#\/?/, ''), parts = h.split('/');
+  clearInterval(liveTimer);
   if (parts[0] === 'equipe' && parts[1]) return vCrew(decodeURIComponent(parts[1]));
   if (parts[0] === 'confidentialite') return vPrivacy();
   if (!S.user) return vLogin();
   if (!S.profile || !S.profile.onboarded) return vOnboard(1);
-  window.scrollTo(0, 0); if (dlg.open) dlg.close();
+  window.scrollTo(0, 0); if (dlg.open) dlg.close(); clearInterval(liveTimer);
   switch (parts[0]) {
     case 'seances': return vActs();
     case 'seance': return vAct(parts[1]);
